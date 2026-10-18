@@ -12,15 +12,18 @@ klens ships as one image, `ghcr.io/marcocondrache/klens`, built for each release
    ```
 
 2. Copy [`config/clusters.example.yaml`](https://github.com/marcocondrache/klens/blob/main/config/clusters.example.yaml) to `config.yaml` and set your clusters. The [configuration reference](/docs/reference/configuration) lists every key.
-3. Run the image with the file mounted.
+3. Set `bind: 0.0.0.0:8080` in `config.yaml`. Without `auth`, klens listens on loopback by default, and Docker cannot forward a published port to the loopback of the container.
+4. Run the image with the file mounted.
 
    ```sh
-   docker run --rm -p 8080:8080 \
+   docker run --rm -p 127.0.0.1:8080:8080 \
      -v "$PWD/config.yaml:/config.yaml:ro" \
      ghcr.io/marcocondrache/klens:latest
    ```
 
-4. Open `http://localhost:8080`.
+   `127.0.0.1:8080:8080` publishes the port on your machine alone. Publish it to other machines only after you [require sign-in](/docs/operate/require-sign-in).
+
+5. Open `http://localhost:8080`.
 
 ## Pass secrets
 
@@ -38,7 +41,7 @@ clusters:
 ```
 
 ```sh
-docker run --rm -p 8080:8080 \
+docker run --rm -p 127.0.0.1:8080:8080 \
   -e KAFKA_PASSWORD \
   -v "$PWD/config.yaml:/config.yaml:ro" \
   ghcr.io/marcocondrache/klens:latest
@@ -59,6 +62,6 @@ allowed_hosts: [localhost, 127.0.0.1, "::1", kafka-ui.internal]
 ## Check the container
 
 - `GET /health` answers `204` once the process listens.
-- `GET /ready` answers `204` once klens has read every configured cluster, and `503` before.
+- `GET /ready` answers `204` once klens has read every configured cluster or failed to reach it, and `503` before.
 
 A config that klens cannot read stops the container at once. The log names the file, the key, the line, and the column.

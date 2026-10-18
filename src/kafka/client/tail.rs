@@ -127,14 +127,9 @@ mod tests {
         let client = broker.client().await;
         broker.clear_requests();
 
-        let tail = TailLease::open(
-            &client.transport.connector,
-            "orders",
-            &[at(0, 2)],
-            client.tail_reader,
-        )
-        .await
-        .unwrap();
+        let tail = TailLease::open(&client.connector, "orders", &[at(0, 2)], client.tail_reader)
+            .await
+            .unwrap();
 
         assert_eq!(tail.position(0).await, Some(2));
         assert_eq!(read(&tail, 2).await, vec![2, 3]);
@@ -151,14 +146,9 @@ mod tests {
     async fn a_seek_moves_where_the_next_poll_reads() {
         let broker = Broker::orders(4).await;
         let client = broker.client().await;
-        let tail = TailLease::open(
-            &client.transport.connector,
-            "orders",
-            &[at(0, 0)],
-            client.tail_reader,
-        )
-        .await
-        .unwrap();
+        let tail = TailLease::open(&client.connector, "orders", &[at(0, 0)], client.tail_reader)
+            .await
+            .unwrap();
         assert_eq!(read(&tail, 4).await, vec![0, 1, 2, 3]);
 
         tail.seek(&[at(0, 1)]).await.unwrap();
@@ -176,14 +166,9 @@ mod tests {
     async fn a_dropped_tail_closes_its_consumer() {
         let broker = Broker::orders(1).await;
         let client = broker.client().await;
-        let tail = TailLease::open(
-            &client.transport.connector,
-            "orders",
-            &[at(0, 0)],
-            client.tail_reader,
-        )
-        .await
-        .unwrap();
+        let tail = TailLease::open(&client.connector, "orders", &[at(0, 0)], client.tail_reader)
+            .await
+            .unwrap();
         let consumer = Arc::clone(&tail.consumer);
 
         drop(tail);
@@ -198,14 +183,9 @@ mod tests {
     async fn a_tail_the_broker_stops_answering_holds_up_nothing_else() {
         let broker = Broker::orders(1).await;
         let client = broker.client().await;
-        let tail = TailLease::open(
-            &client.transport.connector,
-            "orders",
-            &[at(0, 1)],
-            client.tail_reader,
-        )
-        .await
-        .unwrap();
+        let tail = TailLease::open(&client.connector, "orders", &[at(0, 1)], client.tail_reader)
+            .await
+            .unwrap();
 
         let fetches = broker.request_count(ApiKey::Fetch);
         broker.on_once(ApiKey::Fetch, |_| Control::Silence);

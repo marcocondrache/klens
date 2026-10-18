@@ -44,12 +44,12 @@ impl LaneSource for SubjectLane {
         (): &(),
         previous: Option<&Arc<SubjectTable>>,
     ) -> Result<SubjectTable, KafkaError> {
-        let subjects = self.session.schema_subjects().await?;
+        let empty = SubjectTable::default();
+        let previous = previous.map_or(&empty, Arc::as_ref);
 
-        let mut interner = match previous {
-            Some(previous) => Interner::seeded(previous.subjects.keys()),
-            None => Interner::default(),
-        };
+        let subjects = self.session.schema_subjects(previous).await?;
+
+        let mut interner = Interner::seeded(previous.subjects.keys());
         Ok(SubjectTable::assemble(subjects, &mut interner))
     }
 

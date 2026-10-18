@@ -2078,6 +2078,7 @@ dependencies = [
  "memory-serve",
  "moka",
  "openidconnect",
+ "ouroboros",
  "pbkdf2 0.13.0",
  "percent-encoding",
  "prost-reflect",

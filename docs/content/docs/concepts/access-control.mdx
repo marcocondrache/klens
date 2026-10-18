@@ -7,11 +7,13 @@ klens holds a Kafka user that can often read and change much more than any one p
 
 ## Allowed hosts
 
-Without `auth`, klens has no idea who is asking, so its only protection is that it listens where only trusted people reach it. That is not enough on its own. A web page on any site can make the browser of a visitor send requests to `localhost:8080`. Browsers block the page from reading the answers, unless the attacker points their own domain at the address of klens. This is DNS rebinding. The browser then treats klens as part of the attacker's site and lets the page read clusters and send writes.
+Without `auth`, klens has no idea who is asking, so its only protection is that it listens where only trusted people reach it. By default it listens on `127.0.0.1`, which only the local machine reaches. That is not enough on its own. A web page on any site can make the browser of a visitor send requests to `localhost:8080`. Browsers block the page from reading the answers, unless the attacker points their own domain at the address of klens. This is DNS rebinding. The browser then treats klens as part of the attacker's site and lets the page read clusters and send writes.
 
 `allowed_hosts` stops this. The `Host` header of a rebound request names the attacker's domain, and klens refuses any host not on the list. The check binds browsers only, since any other client can send any host. With `auth`, klens skips it, because the attacker's page never holds the session cookie.
 
 `/health` and `/ready` skip the check, because probes and load balancers name an IP address. `/mcp` skips it too, for the reasons in [the MCP ceiling](#the-mcp-ceiling).
+
+The UI and `/api` also refuse to load in a frame, so another site cannot show klens inside its own page and steer a click onto a write.
 
 ## Sign-in
 

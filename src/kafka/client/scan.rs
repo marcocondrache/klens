@@ -234,25 +234,26 @@ mod tests {
     async fn a_released_consumer_serves_the_next_page_of_the_same_topic() {
         let broker = Broker::orders(4).await;
         let client = broker.client().await;
+        let link = client.link().await.unwrap();
 
-        let first = client
+        let first = link
             .scans
             .acquire("orders", &[window(0, 0, 2)])
             .await
             .unwrap();
         assert_eq!(read(&first, window(0, 0, 2)).await, vec![0, 1]);
         first.close().await;
-        assert_eq!(client.scans.parked("orders"), 1);
+        assert_eq!(link.scans.parked("orders"), 1);
         let lookups = broker.request_count(ApiKey::ListOffsets);
 
-        let second = client
+        let second = link
             .scans
             .acquire("orders", &[window(0, 2, 4)])
             .await
             .unwrap();
 
         assert_eq!(
-            client.scans.parked("orders"),
+            link.scans.parked("orders"),
             0,
             "the next page of a topic takes the consumer it left behind"
         );
@@ -269,7 +270,8 @@ mod tests {
     async fn a_waiting_fetch_does_not_hold_up_admin_calls() {
         let broker = Broker::orders(2).await;
         let client = broker.client().await;
-        let scan = client
+        let link = client.link().await.unwrap();
+        let scan = link
             .scans
             .acquire("orders", &[window(0, 0, 2)])
             .await
@@ -285,7 +287,7 @@ mod tests {
         );
         let listed = tokio::time::timeout(
             Duration::from_secs(1),
-            client.transport.admin.list_offsets(
+            link.transport.admin.list_offsets(
                 [(TopicPartition::new("orders", 0), OffsetSpec::Latest)],
                 ListOffsetsOptions::default(),
             ),
@@ -303,7 +305,8 @@ mod tests {
     async fn a_consumer_that_failed_mid_page_is_closed_instead_of_pooled() {
         let broker = Broker::orders(2).await;
         let client = broker.client().await;
-        let scan = client
+        let link = client.link().await.unwrap();
+        let scan = link
             .scans
             .acquire("orders", &[window(0, 0, 2)])
             .await
@@ -315,7 +318,7 @@ mod tests {
         scan.close().await;
 
         assert_eq!(
-            client.scans.parked("orders"),
+            link.scans.parked("orders"),
             0,
             "a consumer that failed mid-page must not be handed out again"
         );
@@ -329,8 +332,9 @@ mod tests {
     async fn a_window_read_to_its_end_reports_its_position_and_no_lag() {
         let broker = Broker::orders(2).await;
         let client = broker.client().await;
+        let link = client.link().await.unwrap();
 
-        let scan = client
+        let scan = link
             .scans
             .acquire("orders", &[window(0, 0, 2)])
             .await
@@ -353,8 +357,9 @@ mod tests {
     async fn reseeking_between_passes_does_not_look_offsets_up_again() {
         let broker = Broker::orders(4).await;
         let client = broker.client().await;
+        let link = client.link().await.unwrap();
 
-        let scan = client
+        let scan = link
             .scans
             .acquire("orders", &[window(0, 2, 4)])
             .await

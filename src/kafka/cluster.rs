@@ -1,7 +1,6 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use futures::future::try_join_all;
 use indexmap::IndexMap;
 
 use crate::config::{self, Tuning};
@@ -112,28 +111,24 @@ pub struct Clusters {
 }
 
 impl Clusters {
-    pub async fn connect(
+    /// Reaches no broker, so a cluster that is down cannot stop klens from
+    /// starting. Each cluster connects on first use.
+    pub fn new(
         clusters: &IndexMap<String, config::Cluster>,
         tuning: &Tuning,
     ) -> Result<Self, KafkaError> {
-        let sessions = try_join_all(
-            clusters
-                .iter()
-                .map(|(name, cluster)| KafkaClient::new(name, cluster, tuning)),
-        )
-        .await?;
-        Ok(Self::from_clusters(
-            sessions
-                .into_iter()
-                .zip(clusters.values())
-                .map(|(session, cluster)| {
-                    Cluster::new(
-                        Arc::new(session),
-                        tuning.ingest.interest_ttl,
-                        cluster.writable,
-                    )
-                }),
-        ))
+        let clusters = clusters
+            .iter()
+            .map(|(name, cluster)| {
+                let session = KafkaClient::new(name, cluster, tuning)?;
+                Ok(Cluster::new(
+                    Arc::new(session),
+                    tuning.ingest.interest_ttl,
+                    cluster.writable,
+                ))
+            })
+            .collect::<Result<Vec<_>, KafkaError>>()?;
+        Ok(Self::from_clusters(clusters))
     }
 
     /// Every cluster is read-only, as when the config omits `writable`.
@@ -182,38 +177,36 @@ impl Clusters {
         self.clusters.values()
     }
 
+    /// True once every cluster has read its topology or failed to, so a
+    /// cluster that is down does not hold back the others.
     pub fn ready(&self) -> bool {
-        self.clusters.values().all(|cluster| cluster.store.ready())
+        self.clusters
+            .values()
+            .all(|cluster| cluster.store.settled())
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use krafka::testing::ApiKey;
-
     use super::*;
     use crate::kafka::client::testing::Broker;
     use crate::kafka::store::Topology;
     use crate::testing::{FakeCluster, yaml};
 
-    async fn connect(clusters: Vec<(&str, config::Cluster)>) -> Result<Clusters, KafkaError> {
+    fn clusters(clusters: Vec<(&str, config::Cluster)>) -> Clusters {
         let clusters = clusters
             .into_iter()
             .map(|(name, cluster)| (name.to_owned(), cluster))
             .collect();
-        Clusters::connect(&clusters, &Tuning::default()).await
+        Clusters::new(&clusters, &Tuning::default()).unwrap()
     }
 
-    #[tokio::test]
-    async fn connect_reaches_every_cluster_and_keeps_config_order() {
-        let first = Broker::start().await;
-        let second = Broker::start().await;
-
-        let mut open = second.config();
-        open.writable = true;
-        let clusters = connect(vec![("b", first.config()), ("a", open)])
-            .await
-            .unwrap();
+    #[test]
+    fn new_keeps_config_order_and_each_clusters_switch() {
+        let clusters = clusters(vec![
+            ("b", yaml("bootstrap_servers: [b:9092]")),
+            ("a", yaml("{bootstrap_servers: [a:9092], writable: true}")),
+        ]);
 
         assert_eq!(clusters.names().collect::<Vec<_>>(), vec!["b", "a"]);
         assert!(!clusters.get("b").unwrap().writable);
@@ -221,15 +214,25 @@ mod tests {
             clusters.get("a").unwrap().writable,
             "each cluster keeps its own switch"
         );
-        assert!(first.request_count(ApiKey::Metadata) > 0);
-        assert!(second.request_count(ApiKey::Metadata) > 0);
     }
 
     #[tokio::test]
-    async fn connect_returns_connection_errors() {
-        let result = connect(vec![("invalid", yaml("bootstrap_servers: []"))]).await;
+    async fn a_cluster_that_is_down_leaves_the_others_up() {
+        let up = Broker::start().await;
+        let down = Broker::start().await;
+        down.crash(0);
 
-        assert!(matches!(result, Err(KafkaError::Krafka(_))));
+        let clusters = clusters(vec![("up", up.config()), ("down", down.config())]);
+
+        let session = |name| Arc::clone(&clusters.get(name).unwrap().session);
+        session("up")
+            .metadata()
+            .await
+            .expect("the cluster that is up");
+        session("down")
+            .metadata()
+            .await
+            .expect_err("the cluster that is down");
     }
 
     #[test]
@@ -245,18 +248,16 @@ mod tests {
         );
         assert!(!clusters.ready());
 
-        let commit = |name| {
-            clusters
-                .get(name)
-                .unwrap()
-                .store
-                .topology
-                .commit(Arc::new(Topology::default()))
-        };
-        commit("prod");
+        let store = |name| Arc::clone(&clusters.get(name).unwrap().store);
+        store("prod").topology.commit(Arc::new(Topology::default()));
         assert!(!clusters.ready(), "one cluster is not the whole set");
 
-        commit("staging");
-        assert!(clusters.ready());
+        store("staging")
+            .topology
+            .record_poll(Duration::ZERO, Some("connection refused".to_owned()));
+        assert!(
+            clusters.ready(),
+            "a cluster that is down does not hold back the others"
+        );
     }
 }

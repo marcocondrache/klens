@@ -11,9 +11,8 @@ async fn main() -> anyhow::Result<()> {
     let config = Config::load(path)?;
     let _telemetry = klens::telemetry::Telemetry::init(config.log_level, env!("CARGO_CRATE_NAME"))?;
 
-    let clusters = Clusters::connect(&config.clusters, &config.tuning)
-        .await
-        .context("failed to connect to the configured kafka clusters")?;
+    let clusters = Clusters::new(&config.clusters, &config.tuning)
+        .context("failed to set up the configured kafka clusters")?;
 
     tracing::info!(
         clusters = ?clusters.names().collect::<Vec<_>>(),
@@ -77,7 +76,7 @@ async fn main() -> anyhow::Result<()> {
 
     let mut listeners = vec![Listener {
         router: router(state.clone(), &config.allowed_hosts),
-        bind: config.bind,
+        bind: config.bind(),
     }];
     if let Some(mcp) = &config.mcp {
         listeners.push(Listener {

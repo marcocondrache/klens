@@ -26,8 +26,8 @@ use crate::kafka::model::{
 };
 use crate::kafka::quota::{ClientQuota, QuotaListing, QuotaValues};
 use crate::kafka::registry::{
-    NewSchema, RegisteredSchema, RegisteredVersion, SchemaCompatibility, SchemaDeletion,
-    SchemaSubject, SchemaType,
+    KnownSchemas, NewSchema, RegisteredSchema, RegisteredVersion, SchemaCompatibility,
+    SchemaDeletion, SchemaSubject, SchemaType,
 };
 use crate::kafka::scan::obfuscate::ObfuscationPolicy;
 use crate::kafka::scan::payload::PayloadCodec;
@@ -758,7 +758,10 @@ impl ClusterSession for FakeCluster {
         self.world().schema_registry
     }
 
-    async fn schema_subjects(&self) -> Result<Vec<SchemaSubject>, KafkaError> {
+    async fn schema_subjects(
+        &self,
+        _known: &dyn KnownSchemas,
+    ) -> Result<Vec<SchemaSubject>, KafkaError> {
         self.answer(Api::SchemaSubjects).await?;
         Ok(self.world().subjects.clone())
     }

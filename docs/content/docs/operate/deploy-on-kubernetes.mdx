@@ -93,4 +93,4 @@ Before you expose klens beyond your own machine, [require sign-in](/docs/operate
 
 ## Use your own ConfigMap
 
-To keep the config outside the chart, create a ConfigMap with a `config.yaml` key and set `existingConfigMap` to its name. The chart then skips its render checks on the config. If that config has an `mcp` block, also set `mcp.enabled: true`, so the chart creates the MCP Service.
+To keep the config outside the chart, create a ConfigMap with a `config.yaml` key and set `existingConfigMap` to its name. The chart then skips its render checks on the config, so set `bind: 0.0.0.0:8080` in it yourself. Without `auth`, klens otherwise listens on loopback, where the Service and the probes cannot reach it. If that config has an `mcp` block, also set `mcp.enabled: true`, so the chart creates the MCP Service.

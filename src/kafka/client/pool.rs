@@ -215,7 +215,8 @@ mod tests {
             start: 0,
             end: 1,
         };
-        let consumer = client.scans.build("orders", &[window]).await.unwrap();
+        let link = client.link().await.unwrap();
+        let consumer = link.scans.build("orders", &[window]).await.unwrap();
         let mut idle = ScanPoolInner::new(&ScanTuning::default());
         let mut evicted = Vec::new();
 

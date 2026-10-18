@@ -18,7 +18,7 @@ pub(super) struct Transport {
     /// krafka shows the metadata cache its clients share only through a
     /// consumer. This one is never assigned a partition, so it fetches nothing.
     pub(super) metadata: Consumer,
-    pub(super) connector: Connector,
+    request_timeout: Duration,
 }
 
 #[derive(Clone)]
@@ -33,7 +33,7 @@ pub(super) struct Connector {
 }
 
 impl Connector {
-    fn new(name: &str, cluster: &config::Cluster, tuning: &KafkaTuning) -> Self {
+    pub(super) fn new(name: &str, cluster: &config::Cluster, tuning: &KafkaTuning) -> Self {
         Self {
             bootstrap_servers: cluster.bootstrap_servers.join(","),
             client_id: cluster
@@ -66,12 +66,7 @@ impl Connector {
 }
 
 impl Transport {
-    pub(super) async fn connect(
-        name: &str,
-        cluster: &config::Cluster,
-        tuning: &KafkaTuning,
-    ) -> Result<Self, KafkaError> {
-        let connector = Connector::new(name, cluster, tuning);
+    pub(super) async fn connect(connector: &Connector) -> Result<Self, KafkaError> {
         let kafka = connector.connect().await?;
         let admin = kafka
             .admin()
@@ -87,12 +82,12 @@ impl Transport {
             kafka,
             admin,
             metadata,
-            connector,
+            request_timeout: connector.request_timeout,
         })
     }
 
     pub(super) async fn producer(&self) -> Result<Producer, KafkaError> {
-        let request_timeout = self.connector.request_timeout;
+        let request_timeout = self.request_timeout;
         // krafka retries a retriable error until the delivery timeout, and
         // only idempotence keeps a resend from storing the record twice.
         Ok(self
@@ -173,7 +168,7 @@ mod tests {
         ));
 
         // Building succeeds only if request_timeout is raised to the connect timeout.
-        Transport::connect("local", &cluster, &tuning(30, 8))
+        Transport::connect(&Connector::new("local", &cluster, &tuning(30, 8)))
             .await
             .unwrap();
         assert!(

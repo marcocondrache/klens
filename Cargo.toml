@@ -43,6 +43,7 @@ krafka = "0.27.1"
 memory-serve = { version = "2.4", optional = true }
 moka = { version = "0.12", features = ["future", "sync"] }
 openidconnect = "4.0.1"
+ouroboros = "0.18"
 pbkdf2 = { version = "0.13", default-features = false, features = ["hmac"] }
 prost-reflect = { version = "0.16", features = ["serde"] }
 protox = "0.10"
