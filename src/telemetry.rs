@@ -47,7 +47,7 @@ fn filter(level: LogLevel, target: &str) -> Result<EnvFilter, ParseError> {
 
 pub(crate) fn log_http_completed(status: u16, latency: std::time::Duration) {
     let latency_ms = latency.as_millis();
-    if status == 500 {
+    if status >= 500 {
         tracing::warn!(status, latency_ms, "request completed");
     } else {
         tracing::debug!(status, latency_ms, "request completed");

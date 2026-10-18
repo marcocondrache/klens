@@ -159,7 +159,8 @@ mod tests {
             .route(
                 "/broken",
                 get(|| async { StatusCode::INTERNAL_SERVER_ERROR }),
-            );
+            )
+            .route("/unreachable", get(|| async { StatusCode::BAD_GATEWAY }));
         let request = |path: &str| {
             format!("GET {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
         };
@@ -167,8 +168,10 @@ mod tests {
         exchange(router.clone(), &request("/done")).await;
         logs.assert_lacks("request completed");
 
-        exchange(router, &request("/broken")).await;
+        exchange(router.clone(), &request("/broken")).await;
+        exchange(router, &request("/unreachable")).await;
         logs.assert_contains("status=500");
+        logs.assert_contains("status=502");
     }
 
     #[tokio::test]
