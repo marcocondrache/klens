@@ -808,7 +808,8 @@ mod tests {
         PartitionWindow, Record, RecordOrder, RecordQuery, SchemaType, TimestampRange,
     };
     use crate::kafka::registry::testing::FakeRegistry;
-    use crate::kafka::scan::session::{fetch_page, scan_once};
+    use crate::kafka::scan::plan::LogSpan;
+    use crate::kafka::scan::session::{PageRequest, scan_once};
     use crate::kafka::session::watermarks;
     use crate::testing::LogCapture;
 
@@ -1531,17 +1532,11 @@ mod tests {
             schema_id: None,
         };
 
+        let request = PageRequest::new(query, Tuning::default().records).expect("request");
+        let span = LogSpan::new(vec![0, 1], watermarks);
+
         let started = std::time::Instant::now();
-        let page = fetch_page(
-            &client,
-            &query,
-            &[0, 1],
-            &watermarks,
-            50,
-            Tuning::default().records,
-        )
-        .await
-        .expect("page");
+        let page = request.fetch(&client, &span).await.expect("page");
 
         assert!(
             page.complete,

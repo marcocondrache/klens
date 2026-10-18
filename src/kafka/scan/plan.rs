@@ -2,7 +2,6 @@ use std::collections::BTreeMap;
 
 use foldhash::{HashMap, HashMapExt};
 
-use crate::kafka::limits::RecordLimits;
 use crate::kafka::metadata::Watermarks;
 
 use super::cursor::{RecordCursor, Remaining};
@@ -21,111 +20,140 @@ impl PartitionWindow {
     }
 }
 
-pub fn plan_windows(
-    partitions: &[i32],
-    watermarks: &HashMap<i32, Watermarks>,
-    walk: RecordOrder,
-    limit: usize,
-    searching: bool,
-    cursor: Option<&RecordCursor>,
-    limits: RecordLimits,
-) -> Vec<PartitionWindow> {
-    let take = limits.window_take(limit, searching);
-    let remaining = cursor.map(|cursor| &cursor.remaining);
-
-    partitions
-        .iter()
-        .filter_map(|&partition| {
-            let marks = watermarks.get(&partition)?;
-            let ending_at = |end: i64| {
-                let end = end.min(marks.high).max(marks.low);
-                (end - take.min(end - marks.low), end)
-            };
-            let starting_at = |start: i64| {
-                let start = start.max(marks.low).min(marks.high);
-                (start, start + take.min(marks.high - start))
-            };
-
-            let (start, end) = match (remaining, walk) {
-                (None, RecordOrder::Newest) => ending_at(marks.high),
-                (None, RecordOrder::Oldest) => starting_at(marks.low),
-                (Some(Remaining::Before(ends)), _) => ending_at(*ends.get(&partition)?),
-                (Some(Remaining::From(starts)), _) => starting_at(*starts.get(&partition)?),
-            };
-            let window = PartitionWindow {
-                partition,
-                start,
-                end,
-            };
-            (!window.is_empty()).then_some(window)
-        })
-        .collect()
+/// The partitions a read covers and the offsets each one held when the read
+/// opened.
+#[derive(Debug)]
+pub struct LogSpan {
+    partitions: Vec<i32>,
+    watermarks: HashMap<i32, Watermarks>,
 }
 
-pub fn walk_start(
-    walk: RecordOrder,
-    partitions: &[i32],
-    watermarks: &HashMap<i32, Watermarks>,
-) -> Remaining {
-    let offsets = partitions
-        .iter()
-        .filter_map(|&partition| {
-            let marks = watermarks.get(&partition)?;
-            let near_end = match walk {
-                RecordOrder::Oldest => marks.low,
-                RecordOrder::Newest => marks.high,
-            };
-            Some((partition, near_end))
-        })
-        .collect();
-
-    Remaining::walking(walk, offsets)
-}
-
-pub fn advance_cursor(
-    from: &Remaining,
-    covered: &[PartitionWindow],
-    watermarks: &HashMap<i32, Watermarks>,
-    kept: &[(i32, i64)],
-    limit: usize,
-    order: RecordOrder,
-) -> Option<RecordCursor> {
-    let walk = from.walk();
-    let returned = (kept.len() >= limit).then(|| past_furthest(walk, kept));
-    let mut next = from.offsets().clone();
-    for window in covered {
-        let (near, far) = match walk {
-            RecordOrder::Oldest => (window.start, window.end),
-            RecordOrder::Newest => (window.end, window.start),
-        };
-        let offset = match &returned {
-            Some(returned) => returned.get(&window.partition).copied().unwrap_or(near),
-            None => far,
-        };
-        next.insert(window.partition, offset);
+impl LogSpan {
+    pub fn new(partitions: Vec<i32>, watermarks: HashMap<i32, Watermarks>) -> Self {
+        Self {
+            partitions,
+            watermarks,
+        }
     }
 
-    cursor_from(order, walk, next, watermarks)
-}
+    pub fn windows(
+        &self,
+        walk: RecordOrder,
+        take: i64,
+        cursor: Option<&RecordCursor>,
+    ) -> Vec<PartitionWindow> {
+        let remaining = cursor.map(|cursor| &cursor.remaining);
 
-pub fn rewind_cursor(
-    opened: &RecordCursor,
-    partitions: &[i32],
-    watermarks: &HashMap<i32, Watermarks>,
-) -> Option<RecordCursor> {
-    let walk = opened.walk();
-    let boundaries = opened.remaining.offsets();
-    let back = partitions.iter().filter_map(|&partition| {
-        let marks = watermarks.get(&partition)?;
-        let far_end = match walk {
-            RecordOrder::Oldest => marks.high,
-            RecordOrder::Newest => marks.low,
-        };
-        let boundary = boundaries.get(&partition).copied().unwrap_or(far_end);
-        Some((partition, boundary))
-    });
+        self.partitions
+            .iter()
+            .filter_map(|&partition| {
+                let marks = self.watermarks.get(&partition)?;
+                let ending_at = |end: i64| {
+                    let end = end.min(marks.high).max(marks.low);
+                    (end - take.min(end - marks.low), end)
+                };
+                let starting_at = |start: i64| {
+                    let start = start.max(marks.low).min(marks.high);
+                    (start, start + take.min(marks.high - start))
+                };
 
-    cursor_from(opened.order, walk.flipped(), back, watermarks)
+                let (start, end) = match (remaining, walk) {
+                    (None, RecordOrder::Newest) => ending_at(marks.high),
+                    (None, RecordOrder::Oldest) => starting_at(marks.low),
+                    (Some(Remaining::Before(ends)), _) => ending_at(*ends.get(&partition)?),
+                    (Some(Remaining::From(starts)), _) => starting_at(*starts.get(&partition)?),
+                };
+                let window = PartitionWindow {
+                    partition,
+                    start,
+                    end,
+                };
+                (!window.is_empty()).then_some(window)
+            })
+            .collect()
+    }
+
+    pub fn start(&self, walk: RecordOrder) -> Remaining {
+        let offsets = self
+            .partitions
+            .iter()
+            .filter_map(|&partition| {
+                let marks = self.watermarks.get(&partition)?;
+                let near_end = match walk {
+                    RecordOrder::Oldest => marks.low,
+                    RecordOrder::Newest => marks.high,
+                };
+                Some((partition, near_end))
+            })
+            .collect();
+
+        Remaining::walking(walk, offsets)
+    }
+
+    pub fn advance(
+        &self,
+        from: &RecordCursor,
+        covered: &[PartitionWindow],
+        kept: &[(i32, i64)],
+        limit: usize,
+    ) -> Option<RecordCursor> {
+        let walk = from.walk();
+        let returned = (kept.len() >= limit).then(|| past_furthest(walk, kept));
+        let mut next = from.remaining.offsets().clone();
+        for window in covered {
+            let (near, far) = match walk {
+                RecordOrder::Oldest => (window.start, window.end),
+                RecordOrder::Newest => (window.end, window.start),
+            };
+            let offset = match &returned {
+                Some(returned) => returned.get(&window.partition).copied().unwrap_or(near),
+                None => far,
+            };
+            next.insert(window.partition, offset);
+        }
+
+        self.cursor(from.order, walk, next)
+    }
+
+    pub fn rewind(&self, opened: &RecordCursor) -> Option<RecordCursor> {
+        let walk = opened.walk();
+        let boundaries = opened.remaining.offsets();
+        let back = self.partitions.iter().filter_map(|&partition| {
+            let marks = self.watermarks.get(&partition)?;
+            let far_end = match walk {
+                RecordOrder::Oldest => marks.high,
+                RecordOrder::Newest => marks.low,
+            };
+            let boundary = boundaries.get(&partition).copied().unwrap_or(far_end);
+            Some((partition, boundary))
+        });
+
+        self.cursor(opened.order, walk.flipped(), back)
+    }
+
+    fn cursor(
+        &self,
+        order: RecordOrder,
+        walk: RecordOrder,
+        offsets: impl IntoIterator<Item = (i32, i64)>,
+    ) -> Option<RecordCursor> {
+        let offsets: BTreeMap<i32, i64> = offsets
+            .into_iter()
+            .filter(|(partition, _)| self.watermarks.contains_key(partition))
+            .collect();
+        let unread = offsets.iter().any(|(partition, &offset)| {
+            let marks = &self.watermarks[partition];
+            match walk {
+                RecordOrder::Oldest => offset.max(marks.low) < marks.high,
+                RecordOrder::Newest => offset.min(marks.high) > marks.low,
+            }
+        });
+
+        unread.then(|| RecordCursor {
+            order,
+            remaining: Remaining::walking(walk, offsets),
+        })
+    }
 }
 
 fn past_furthest(walk: RecordOrder, kept: &[(i32, i64)]) -> HashMap<i32, i64> {
@@ -139,30 +167,6 @@ fn past_furthest(walk: RecordOrder, kept: &[(i32, i64)]) -> HashMap<i32, i64> {
         *edge = further(*edge, past);
     }
     edges
-}
-
-fn cursor_from(
-    order: RecordOrder,
-    walk: RecordOrder,
-    offsets: impl IntoIterator<Item = (i32, i64)>,
-    watermarks: &HashMap<i32, Watermarks>,
-) -> Option<RecordCursor> {
-    let offsets: BTreeMap<i32, i64> = offsets
-        .into_iter()
-        .filter(|(partition, _)| watermarks.contains_key(partition))
-        .collect();
-    let unread = offsets.iter().any(|(partition, &offset)| {
-        let marks = &watermarks[partition];
-        match walk {
-            RecordOrder::Oldest => offset.max(marks.low) < marks.high,
-            RecordOrder::Newest => offset.min(marks.high) > marks.low,
-        }
-    });
-
-    unread.then(|| RecordCursor {
-        order,
-        remaining: Remaining::walking(walk, offsets),
-    })
 }
 
 pub fn apply_timestamp_bounds(
@@ -196,6 +200,7 @@ mod tests {
     use std::num::NonZeroUsize;
 
     use super::*;
+    use crate::kafka::limits::RecordLimits;
     use crate::kafka::scan::cursor::CursorDirection;
 
     fn limits() -> RecordLimits {
@@ -235,10 +240,16 @@ mod tests {
         }
     }
 
+    fn span(watermarks: HashMap<i32, Watermarks>) -> LogSpan {
+        let mut partitions: Vec<i32> = watermarks.keys().copied().collect();
+        partitions.sort_unstable();
+        LogSpan::new(partitions, watermarks)
+    }
+
     fn advance(
         walk: RecordOrder,
         covered: &[PartitionWindow],
-        watermarks: &HashMap<i32, Watermarks>,
+        watermarks: HashMap<i32, Watermarks>,
         kept: &[(i32, i64)],
         limit: usize,
     ) -> Option<RecordCursor> {
@@ -249,91 +260,64 @@ mod tests {
                 RecordOrder::Newest => (window.partition, window.end),
             })
             .collect();
-        advance_cursor(
-            &Remaining::walking(walk, from),
-            covered,
-            watermarks,
-            kept,
-            limit,
-            walk,
-        )
+        let from = RecordCursor {
+            order: walk,
+            remaining: Remaining::walking(walk, from),
+        };
+        span(watermarks).advance(&from, covered, kept, limit)
     }
 
     #[test]
     fn newest_window_reads_from_the_high_watermark() {
-        let windows = plan_windows(
-            &[0],
-            &marks(10, 40),
+        let windows = LogSpan::new(vec![0], marks(10, 40)).windows(
             RecordOrder::Newest,
-            5,
-            false,
+            limits().window_take(5, false),
             None,
-            limits(),
         );
         assert_eq!(windows, vec![window(0, 30, 40)]);
     }
 
     #[test]
     fn oldest_window_reads_from_the_low_watermark() {
-        let windows = plan_windows(
-            &[0],
-            &marks(10, 40),
+        let windows = LogSpan::new(vec![0], marks(10, 40)).windows(
             RecordOrder::Oldest,
-            5,
-            false,
+            limits().window_take(5, false),
             None,
-            limits(),
         );
         assert_eq!(windows, vec![window(0, 10, 20)]);
     }
 
     #[test]
     fn newest_cursor_ends_the_next_window() {
-        let windows = plan_windows(
-            &[0],
-            &marks(10, 40),
+        let windows = LogSpan::new(vec![0], marks(10, 40)).windows(
             RecordOrder::Newest,
-            5,
-            false,
+            limits().window_take(5, false),
             Some(&cursor(Remaining::Before, 35)),
-            limits(),
         );
         assert_eq!(windows, vec![window(0, 25, 35)]);
     }
 
     #[test]
     fn oldest_cursor_starts_the_next_window() {
-        let windows = plan_windows(
-            &[0],
-            &marks(10, 40),
+        let windows = LogSpan::new(vec![0], marks(10, 40)).windows(
             RecordOrder::Oldest,
-            5,
-            false,
+            limits().window_take(5, false),
             Some(&cursor(Remaining::From, 15)),
-            limits(),
         );
         assert_eq!(windows, vec![window(0, 15, 25)]);
     }
 
     #[test]
     fn cursor_past_available_records_yields_no_windows() {
-        let newest = plan_windows(
-            &[0],
-            &marks(10, 40),
+        let newest = LogSpan::new(vec![0], marks(10, 40)).windows(
             RecordOrder::Newest,
-            5,
-            false,
+            limits().window_take(5, false),
             Some(&cursor(Remaining::Before, 10)),
-            limits(),
         );
-        let oldest = plan_windows(
-            &[0],
-            &marks(10, 40),
+        let oldest = LogSpan::new(vec![0], marks(10, 40)).windows(
             RecordOrder::Oldest,
-            5,
-            false,
+            limits().window_take(5, false),
             Some(&cursor(Remaining::From, 40)),
-            limits(),
         );
         assert!(newest.is_empty());
         assert!(oldest.is_empty());
@@ -344,7 +328,7 @@ mod tests {
         let cursor = advance(
             RecordOrder::Oldest,
             &[window(0, 10, 20)],
-            &marks(10, 40),
+            marks(10, 40),
             &[(0, 10), (0, 14)],
             2,
         )
@@ -357,7 +341,7 @@ mod tests {
         let cursor = advance(
             RecordOrder::Newest,
             &[window(0, 30, 40)],
-            &marks(10, 40),
+            marks(10, 40),
             &[(0, 39), (0, 35)],
             2,
         )
@@ -371,7 +355,7 @@ mod tests {
             advance(
                 RecordOrder::Oldest,
                 &[window(0, 10, 20)],
-                &marks(10, 20),
+                marks(10, 20),
                 &[(0, 10), (0, 19)],
                 50,
             )
@@ -386,14 +370,10 @@ mod tests {
             (1, Watermarks { low: 0, high: 100 }),
         ]);
 
-        let windows = plan_windows(
-            &[0, 1],
-            &watermarks,
+        let windows = LogSpan::new(vec![0, 1], watermarks).windows(
             RecordOrder::Newest,
-            5,
-            false,
+            limits().window_take(5, false),
             None,
-            limits(),
         );
 
         assert_eq!(
@@ -412,14 +392,10 @@ mod tests {
             (1, Watermarks { low: 0, high: 40 }),
         ]);
 
-        let windows = plan_windows(
-            &[0, 1],
-            &watermarks,
+        let windows = LogSpan::new(vec![0, 1], watermarks).windows(
             RecordOrder::Newest,
-            5,
-            false,
+            limits().window_take(5, false),
             Some(&cursor(Remaining::Before, 20)),
-            limits(),
         );
 
         assert_eq!(windows, vec![window(0, 10, 20)]);
@@ -435,7 +411,7 @@ mod tests {
         let cursor = advance(
             RecordOrder::Newest,
             &[window(0, 30, 40), window(1, 30, 40)],
-            &watermarks,
+            watermarks,
             &[(0, 39), (0, 35)],
             2,
         )
@@ -445,26 +421,10 @@ mod tests {
 
     #[test]
     fn searching_widens_the_window() {
-        let watermarks = marks(0, 1_000);
+        let span = LogSpan::new(vec![0], marks(0, 1_000));
 
-        let plain = plan_windows(
-            &[0],
-            &watermarks,
-            RecordOrder::Newest,
-            5,
-            false,
-            None,
-            limits(),
-        );
-        let searching = plan_windows(
-            &[0],
-            &watermarks,
-            RecordOrder::Newest,
-            5,
-            true,
-            None,
-            limits(),
-        );
+        let plain = span.windows(RecordOrder::Newest, limits().window_take(5, false), None);
+        let searching = span.windows(RecordOrder::Newest, limits().window_take(5, true), None);
 
         assert_eq!(plain[0].end - plain[0].start, 10);
         assert_eq!(searching[0].end - searching[0].start, 40);
@@ -475,7 +435,7 @@ mod tests {
         let cursor = advance(
             RecordOrder::Newest,
             &[window(0, 100, 180)],
-            &marks(0, 500),
+            marks(0, 500),
             &[(0, 160), (0, 120)],
             2,
         )
@@ -488,7 +448,7 @@ mod tests {
         let cursor = advance(
             RecordOrder::Newest,
             &[window(0, 420, 500)],
-            &marks(0, 500),
+            marks(0, 500),
             &[(0, 480), (0, 440)],
             3,
         )
@@ -501,7 +461,7 @@ mod tests {
         let cursor = advance(
             RecordOrder::Newest,
             &[window(0, 36, 40)],
-            &marks(10, 40),
+            marks(10, 40),
             &[],
             2,
         )
@@ -515,7 +475,9 @@ mod tests {
 
     #[test]
     fn the_near_edge_of_a_newest_page_points_at_the_newer_side() {
-        let cursor = rewind_cursor(&cursor(Remaining::Before, 40), &[0], &marks(10, 100)).unwrap();
+        let cursor = LogSpan::new(vec![0], marks(10, 100))
+            .rewind(&cursor(Remaining::Before, 40))
+            .unwrap();
 
         assert_eq!(cursor.remaining, starting(&[(0, 40)]));
         assert_eq!(cursor.direction(), CursorDirection::Backward);
@@ -523,7 +485,9 @@ mod tests {
 
     #[test]
     fn the_near_edge_of_an_oldest_page_points_at_the_older_side() {
-        let cursor = rewind_cursor(&cursor(Remaining::From, 14), &[0], &marks(10, 100)).unwrap();
+        let cursor = LogSpan::new(vec![0], marks(10, 100))
+            .rewind(&cursor(Remaining::From, 14))
+            .unwrap();
 
         assert_eq!(cursor.remaining, ending(&[(0, 14)]));
         assert_eq!(cursor.direction(), CursorDirection::Backward);
@@ -536,7 +500,9 @@ mod tests {
             remaining: starting(&[(0, 20)]),
         };
 
-        let cursor = rewind_cursor(&backward, &[0], &marks(10, 100)).unwrap();
+        let cursor = LogSpan::new(vec![0], marks(10, 100))
+            .rewind(&backward)
+            .unwrap();
 
         assert_eq!(cursor.remaining, ending(&[(0, 20)]));
         assert_eq!(cursor.direction(), CursorDirection::Forward);
@@ -549,14 +515,13 @@ mod tests {
             (1, Watermarks { low: 0, high: 0 }),
         ]);
 
+        let span = LogSpan::new(vec![0, 1, 2], watermarks);
+
         assert_eq!(
-            walk_start(RecordOrder::Oldest, &[0, 1, 2], &watermarks),
+            span.start(RecordOrder::Oldest),
             starting(&[(0, 10), (1, 0)])
         );
-        assert_eq!(
-            walk_start(RecordOrder::Newest, &[0, 1, 2], &watermarks),
-            ending(&[(0, 40), (1, 0)])
-        );
+        assert_eq!(span.start(RecordOrder::Newest), ending(&[(0, 40), (1, 0)]));
     }
 
     #[test]
@@ -569,7 +534,7 @@ mod tests {
         let cursor = advance(
             RecordOrder::Oldest,
             &[window(0, 10, 20), window(1, 10, 20)],
-            &watermarks,
+            watermarks,
             &[],
             2,
         )
@@ -585,32 +550,26 @@ mod tests {
             (1, Watermarks { low: 0, high: 20 }),
         ]);
 
-        let cursor = advance_cursor(
-            &starting(&[(0, 10), (1, 20)]),
-            &[window(0, 10, 20)],
-            &watermarks,
-            &[],
-            2,
-            RecordOrder::Oldest,
-        )
-        .unwrap();
+        let from = RecordCursor {
+            order: RecordOrder::Oldest,
+            remaining: starting(&[(0, 10), (1, 20)]),
+        };
+
+        let cursor = span(watermarks)
+            .advance(&from, &[window(0, 10, 20)], &[], 2)
+            .unwrap();
 
         assert_eq!(cursor.remaining, starting(&[(0, 20), (1, 20)]));
     }
 
     #[test]
     fn an_offset_the_low_watermark_passed_has_nothing_left_to_read() {
-        assert!(
-            advance_cursor(
-                &starting(&[(0, 2)]),
-                &[],
-                &marks(5, 5),
-                &[],
-                2,
-                RecordOrder::Oldest,
-            )
-            .is_none()
-        );
+        let from = RecordCursor {
+            order: RecordOrder::Oldest,
+            remaining: starting(&[(0, 2)]),
+        };
+
+        assert!(span(marks(5, 5)).advance(&from, &[], &[], 2).is_none());
     }
 
     #[test]
@@ -624,7 +583,9 @@ mod tests {
             remaining: starting(&[(0, 20), (1, 25)]),
         };
 
-        let cursor = rewind_cursor(&opened, &[0, 1], &watermarks).unwrap();
+        let cursor = LogSpan::new(vec![0, 1], watermarks)
+            .rewind(&opened)
+            .unwrap();
 
         assert_eq!(cursor.remaining, ending(&[(0, 20), (1, 25)]));
     }
@@ -636,8 +597,10 @@ mod tests {
             (1, Watermarks { low: 10, high: 40 }),
         ]);
 
-        let newest = rewind_cursor(&cursor(Remaining::Before, 20), &[0, 1], &watermarks).unwrap();
-        let oldest = rewind_cursor(&cursor(Remaining::From, 20), &[0, 1], &watermarks).unwrap();
+        let span = LogSpan::new(vec![0, 1], watermarks);
+
+        let newest = span.rewind(&cursor(Remaining::Before, 20)).unwrap();
+        let oldest = span.rewind(&cursor(Remaining::From, 20)).unwrap();
 
         assert_eq!(newest.remaining, starting(&[(0, 20), (1, 10)]));
         assert_eq!(oldest.remaining, ending(&[(0, 20), (1, 40)]));
@@ -645,8 +608,16 @@ mod tests {
 
     #[test]
     fn there_is_no_near_edge_at_the_start_of_the_log() {
-        assert!(rewind_cursor(&cursor(Remaining::Before, 40), &[0], &marks(10, 40)).is_none());
-        assert!(rewind_cursor(&cursor(Remaining::From, 10), &[0], &marks(10, 40)).is_none());
+        assert!(
+            LogSpan::new(vec![0], marks(10, 40))
+                .rewind(&cursor(Remaining::Before, 40))
+                .is_none()
+        );
+        assert!(
+            LogSpan::new(vec![0], marks(10, 40))
+                .rewind(&cursor(Remaining::From, 10))
+                .is_none()
+        );
     }
 
     #[test]

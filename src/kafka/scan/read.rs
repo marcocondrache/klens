@@ -6,9 +6,9 @@ use crate::kafka::metadata::{PartitionMetadata, Watermarks};
 use crate::kafka::session::{ClusterSession, watermarks};
 use crate::kafka::store::ClusterStore;
 
-use super::plan::apply_timestamp_bounds;
+use super::plan::{LogSpan, apply_timestamp_bounds};
 use super::query::{RecordAt, RecordQuery};
-use super::session::fetch_page;
+use super::session::PageRequest;
 use super::{FoundRecord, RecordPage};
 
 pub async fn read_page<S: ClusterSession + ?Sized>(
@@ -17,12 +17,10 @@ pub async fn read_page<S: ClusterSession + ?Sized>(
     query: RecordQuery,
     limits: RecordLimits,
 ) -> Result<RecordPage, KafkaError> {
-    let limit = limits.clamp_limit(query.limit)?;
+    let request = PageRequest::new(query, limits)?;
+    let span = resolve_span(session, store, request.query()).await?;
 
-    let partitions = resolve_partitions(session, store, &query.topic, &query.partitions).await?;
-    let watermarks = window_watermarks(session, &query, &partitions).await?;
-
-    fetch_page(session, &query, &partitions, &watermarks, limit, limits).await
+    request.fetch(session, &span).await
 }
 
 pub async fn read_record<S: ClusterSession + ?Sized>(
@@ -44,6 +42,17 @@ pub async fn read_record<S: ClusterSession + ?Sized>(
             partition: at.partition,
             offset: at.offset,
         })
+}
+
+pub(super) async fn resolve_span<S: ClusterSession + ?Sized>(
+    session: &S,
+    store: &ClusterStore,
+    query: &RecordQuery,
+) -> Result<LogSpan, KafkaError> {
+    let partitions = resolve_partitions(session, store, &query.topic, &query.partitions).await?;
+    let watermarks = window_watermarks(session, query, &partitions).await?;
+
+    Ok(LogSpan::new(partitions, watermarks))
 }
 
 pub(super) async fn resolve_partitions<S: ClusterSession + ?Sized>(
@@ -91,7 +100,7 @@ fn select_partitions(
     Ok(selected)
 }
 
-pub(super) async fn window_watermarks<S: ClusterSession + ?Sized>(
+async fn window_watermarks<S: ClusterSession + ?Sized>(
     session: &S,
     query: &RecordQuery,
     partitions: &[i32],
