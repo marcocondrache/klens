@@ -118,10 +118,10 @@ Credentials travel over `http://` only to a loopback host. A remote registry wit
 | --- | --- | --- | --- |
 | `topics` | List of topic patterns | `[]` | The topics the rule covers. A pattern is an exact name, or a prefix that ends in `*`. |
 | `fields` | List of `{path, strategy}` | `[]` | Fields of a value that the schema registry decoded, by dotted path, such as `card.number`. |
-| `patterns` | List of `{regex, strategy}` | `[]` | Regular expressions that run on the text of the key and the value. |
+| `patterns` | List of `{regex, strategy}` | `[]` | Regular expressions that run on the text of the key, the value, and each header value. |
 | `key` | Strategy | None | A strategy for the whole key. |
 | `value` | Strategy | None | A strategy for the whole value. |
-| `headers` | List of strings | `[]` | The names of headers whose values klens masks. |
+| `headers` | List of strings | `[]` | The names of headers whose values klens masks. A name matches in any case. |
 | `unparsed` | `mask` or `allow` | `mask` | What `fields` do to a value that did not decode. `mask` masks the whole value. `allow` shows it as it is. |
 
 The strategies are these:

@@ -25,7 +25,7 @@ pub struct Rule {
     pub patterns: Vec<Pattern>,
     pub key: Option<Strategy>,
     pub value: Option<Strategy>,
-    /// Names of headers whose values are masked.
+    /// Names of headers whose values are masked, matched in any case.
     pub headers: Vec<String>,
     /// What `fields` do to a value that never decoded.
     pub unparsed: Unparsed,

@@ -110,19 +110,39 @@ impl TopicObfuscator {
             || self.value.is_some()
     }
 
-    pub fn mask_headers(&self, headers: &mut [(String, Option<Bytes>)]) {
-        if self.headers.is_empty() {
+    pub fn obfuscate_headers(&self, headers: &mut [(String, Option<Bytes>)]) {
+        if self.headers.is_empty() && self.patterns.is_empty() {
             return;
         }
 
         for (name, value) in headers.iter_mut() {
-            if self
-                .headers
-                .iter()
-                .any(|masked| masked.as_ref() == name.as_str())
-            {
+            if self.masks_header(name) {
                 *value = Some(Bytes::from_static(MASK.as_bytes()));
+            } else if let Some(rewritten) = value
+                .as_deref()
+                .and_then(|bytes| self.rewrite_header(bytes))
+            {
+                *value = Some(rewritten);
             }
+        }
+    }
+
+    /// Kafka header names are case-sensitive bytes, but producers disagree on
+    /// case, and a rule that missed `X-User-Id` would leak it.
+    fn masks_header(&self, name: &str) -> bool {
+        self.headers
+            .iter()
+            .any(|masked| masked.eq_ignore_ascii_case(name))
+    }
+
+    fn rewrite_header(&self, value: &[u8]) -> Option<Bytes> {
+        if self.patterns.is_empty() {
+            return None;
+        }
+
+        match self.rewrite_text(&String::from_utf8_lossy(value)) {
+            Cow::Owned(rewritten) => Some(Bytes::from(rewritten)),
+            Cow::Borrowed(_) => None,
         }
     }
 
@@ -169,16 +189,19 @@ impl TopicObfuscator {
             return;
         }
 
-        let mut text = Cow::Borrowed(payload.text());
+        if let Cow::Owned(text) = self.rewrite_text(payload.text()) {
+            payload.redact_with(text);
+        }
+    }
+
+    fn rewrite_text<'a>(&self, text: &'a str) -> Cow<'a, str> {
+        let mut text = Cow::Borrowed(text);
         for pattern in &self.patterns {
             if let Cow::Owned(rewritten) = pattern.apply(text.as_ref()) {
                 text = Cow::Owned(rewritten);
             }
         }
-
-        if let Cow::Owned(text) = text {
-            payload.redact_with(text);
-        }
+        text
     }
 }
 
@@ -606,8 +629,19 @@ mod tests {
         assert_eq!(value_of(&key).expect("key")["customer"]["email"], "***");
     }
 
+    fn header(name: &str, value: &'static str) -> (String, Option<Bytes>) {
+        (name.to_owned(), Some(Bytes::from_static(value.as_bytes())))
+    }
+
+    fn header_values(headers: &[(String, Option<Bytes>)]) -> Vec<&[u8]> {
+        headers
+            .iter()
+            .map(|(_, value)| value.as_deref().unwrap_or_default())
+            .collect()
+    }
+
     #[test]
-    fn configured_headers_are_masked_by_name() {
+    fn configured_headers_are_masked_by_name_in_any_case() {
         let obfuscator = policy(
             "
             secret: {value: 0123456789abcdef0123456789abcdef}
@@ -620,13 +654,29 @@ mod tests {
         .expect("rule");
 
         let mut headers = vec![
-            ("x-user-id".to_owned(), Some(Bytes::from_static(b"ada"))),
-            ("source".to_owned(), Some(Bytes::from_static(b"checkout"))),
+            header("x-user-id", "ada"),
+            header("X-User-Id", "grace"),
+            header("source", "checkout"),
         ];
-        obfuscator.mask_headers(&mut headers);
+        obfuscator.obfuscate_headers(&mut headers);
 
-        assert_eq!(headers[0].1.as_deref(), Some(b"***".as_slice()));
-        assert_eq!(headers[1].1.as_deref(), Some(b"checkout".as_slice()));
+        assert_eq!(
+            header_values(&headers),
+            [b"***".as_slice(), b"***", b"checkout"]
+        );
+    }
+
+    #[test]
+    fn patterns_rewrite_header_values_too() {
+        let obfuscator = logs().for_topic("app.logs").expect("rule");
+
+        let mut headers = vec![
+            header("x-actor", "ada@example.com via sso"),
+            header("trace", "t-1"),
+        ];
+        obfuscator.obfuscate_headers(&mut headers);
+
+        assert_eq!(header_values(&headers), [b"*** via sso".as_slice(), b"t-1"]);
     }
 
     #[test]

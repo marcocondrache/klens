@@ -117,7 +117,7 @@ impl RecordPipeline {
 
     pub fn screen(&self, raw: &mut RawRecord) -> Option<Screen> {
         if let Some(obfuscator) = &self.obfuscator {
-            obfuscator.mask_headers(&mut raw.headers);
+            obfuscator.obfuscate_headers(&mut raw.headers);
         }
 
         let Some(filter) = &self.filter else {
