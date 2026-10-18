@@ -92,7 +92,7 @@ impl WatermarkLane {
         wanted: &HashMap<String, Vec<i32>>,
         previous: &WatermarkTable,
     ) -> Result<HashMap<String, HashMap<i32, Watermarks>>, KafkaError> {
-        let highs = self.session.high_watermarks(wanted).await?;
+        let highs = self.session.high_watermarks(wanted).await?.found();
 
         let mut lows: HashMap<String, HashMap<i32, i64>> = HashMap::with_capacity(highs.len());
         let mut uncached: HashMap<String, Vec<i32>> = HashMap::new();
@@ -114,7 +114,7 @@ impl WatermarkLane {
         }
 
         if !uncached.is_empty() {
-            for (topic, partitions) in self.session.low_watermarks(&uncached).await? {
+            for (topic, partitions) in self.session.low_watermarks(&uncached).await?.found() {
                 lows.entry(topic).or_default().extend(partitions);
             }
         }

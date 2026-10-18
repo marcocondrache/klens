@@ -51,7 +51,7 @@ use crate::kafka::registry::{
 use crate::kafka::scan::obfuscate::ObfuscationPolicy;
 use crate::kafka::scan::payload::PayloadCodec;
 use crate::kafka::scram::{DescribedUser, NewScramCredential, ScramListing, ScramMechanism};
-use crate::kafka::session::ClusterSession;
+use crate::kafka::session::{ClusterSession, OffsetLookup};
 use crate::kafka::storage::LogDir;
 use crate::kafka::topic_config::{BrokerScope, ConfigEdit, ConfigEntry};
 
@@ -59,7 +59,7 @@ use convert::{committed_from_krafka, produce_refusal, refused};
 use groups::{
     ACTIVE_GROUP_STATES, LISTED_GROUP_TYPES, snapshots_from_descriptions, split_empty_groups,
 };
-use offsets::{known_offsets, time_offsets};
+use offsets::{log_offsets, time_offsets};
 use pool::ScanPool;
 use scan::ReaderConfig;
 use tail::TailLease;
@@ -135,10 +135,10 @@ impl KafkaClient {
         &self,
         topics: &HashMap<String, Vec<i32>>,
         spec: OffsetSpec,
-    ) -> Result<HashMap<String, HashMap<i32, i64>>, KafkaError> {
+    ) -> Result<OffsetLookup, KafkaError> {
         let specs = offset_specs(topics, spec);
         if specs.is_empty() {
-            return Ok(HashMap::new());
+            return Ok(OffsetLookup::default());
         }
 
         let listed = self
@@ -146,7 +146,7 @@ impl KafkaClient {
             .admin
             .list_offsets(specs, ListOffsetsOptions::default())
             .await?;
-        Ok(known_offsets(listed.into_iter().map(listed_offset_parts)))
+        Ok(log_offsets(listed.into_iter().map(listed_offset_parts)))
     }
 
     /// Kafka before 2.8 has no DescribeCluster, and no other request krafka
@@ -262,14 +262,14 @@ impl ClusterSession for KafkaClient {
     async fn low_watermarks(
         &self,
         topics: &HashMap<String, Vec<i32>>,
-    ) -> Result<HashMap<String, HashMap<i32, i64>>, KafkaError> {
+    ) -> Result<OffsetLookup, KafkaError> {
         self.list_offsets(topics, OffsetSpec::Earliest).await
     }
 
     async fn high_watermarks(
         &self,
         topics: &HashMap<String, Vec<i32>>,
-    ) -> Result<HashMap<String, HashMap<i32, i64>>, KafkaError> {
+    ) -> Result<OffsetLookup, KafkaError> {
         self.list_offsets(topics, OffsetSpec::Latest).await
     }
 
@@ -890,6 +890,7 @@ mod tests {
                 .low_watermarks(&HashMap::new())
                 .await
                 .unwrap()
+                .found()
                 .is_empty()
         );
         assert!(
@@ -897,6 +898,7 @@ mod tests {
                 .high_watermarks(&HashMap::new())
                 .await
                 .unwrap()
+                .found()
                 .is_empty()
         );
         assert!(
@@ -992,22 +994,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_partition_kafka_cannot_list_has_no_offset() {
-        let broker = Broker::orders(1).await;
-        let client = broker.client().await;
-        broker.on(ApiKey::ListOffsets, |_| {
-            Control::Error(ErrorCode::TopicAuthorizationFailed)
-        });
-
-        let highs = client
-            .high_watermarks(&wanted("orders", &[0]))
-            .await
-            .expect("high watermarks");
-
-        assert!(highs.is_empty(), "{highs:?}");
-    }
-
-    #[tokio::test]
     async fn a_topic_name_kafka_would_reject_has_no_time_offsets() {
         let broker = Broker::start().await;
         let client = broker.client().await;
@@ -1070,14 +1056,19 @@ mod tests {
         let both = wanted("orders", &[0, 1]);
 
         broker.clear_requests();
-        let lows = client.low_watermarks(&both).await.expect("low watermarks");
+        let lows = client
+            .low_watermarks(&both)
+            .await
+            .expect("low watermarks")
+            .found();
         assert_eq!(broker.request_count(ApiKey::ListOffsets), 1);
 
         broker.clear_requests();
         let highs = client
             .high_watermarks(&both)
             .await
-            .expect("high watermarks");
+            .expect("high watermarks")
+            .found();
         assert_eq!(broker.request_count(ApiKey::ListOffsets), 1);
         assert_eq!(lows["orders"], HashMap::from_iter([(0, 1), (1, 0)]));
         assert_eq!(highs["orders"], HashMap::from_iter([(0, 5), (1, 2)]));
@@ -1100,6 +1091,7 @@ mod tests {
                 .low_watermarks(&wanted("", &[0]))
                 .await
                 .unwrap()
+                .found()
                 .is_empty()
         );
         assert!(
@@ -1107,6 +1099,7 @@ mod tests {
                 .high_watermarks(&wanted("", &[0]))
                 .await
                 .unwrap()
+                .found()
                 .is_empty()
         );
         assert!(

@@ -29,12 +29,12 @@ pub trait ClusterSession: Send + Sync + 'static {
     async fn low_watermarks(
         &self,
         topics: &HashMap<String, Vec<i32>>,
-    ) -> Result<HashMap<String, HashMap<i32, i64>>, KafkaError>;
+    ) -> Result<OffsetLookup, KafkaError>;
 
     async fn high_watermarks(
         &self,
         topics: &HashMap<String, Vec<i32>>,
-    ) -> Result<HashMap<String, HashMap<i32, i64>>, KafkaError>;
+    ) -> Result<OffsetLookup, KafkaError>;
 
     /// Answers `None` for a partition with no record at or after `timestamp`.
     async fn offsets_for_times(
@@ -181,6 +181,48 @@ pub trait ClusterSession: Send + Sync + 'static {
     fn scan_poll_wait(&self) -> Duration;
 }
 
+/// The offsets one lookup found. Kafka answers each partition on its own, so
+/// a partition it failed to answer for must not read as one it does not have.
+#[derive(Debug, Default)]
+pub struct OffsetLookup {
+    found: HashMap<String, HashMap<i32, i64>>,
+    failure: Option<KafkaError>,
+}
+
+impl OffsetLookup {
+    pub fn insert(&mut self, topic: String, partition: i32, offset: i64) {
+        self.found
+            .entry(topic)
+            .or_default()
+            .insert(partition, offset);
+    }
+
+    pub fn fail(&mut self, error: KafkaError) {
+        self.failure.get_or_insert(error);
+    }
+
+    pub fn found(self) -> HashMap<String, HashMap<i32, i64>> {
+        self.found
+    }
+
+    pub fn complete(self) -> Result<HashMap<String, HashMap<i32, i64>>, KafkaError> {
+        match self.failure {
+            Some(error) => Err(error),
+            None => Ok(self.found),
+        }
+    }
+}
+
+impl From<HashMap<String, HashMap<i32, i64>>> for OffsetLookup {
+    fn from(found: HashMap<String, HashMap<i32, i64>>) -> Self {
+        Self {
+            found,
+            failure: None,
+        }
+    }
+}
+
+/// Leaves out a partition Kafka failed to answer for.
 pub async fn watermarks<S: ClusterSession + ?Sized>(
     session: &S,
     topics: &HashMap<String, Vec<i32>>,
@@ -189,7 +231,19 @@ pub async fn watermarks<S: ClusterSession + ?Sized>(
         session.low_watermarks(topics),
         session.high_watermarks(topics)
     )?;
-    Ok(merge_watermarks(&lows, highs))
+    Ok(merge_watermarks(&lows.found(), highs.found()))
+}
+
+/// Fails when Kafka fails to answer for any partition.
+pub async fn complete_watermarks<S: ClusterSession + ?Sized>(
+    session: &S,
+    topics: &HashMap<String, Vec<i32>>,
+) -> Result<HashMap<String, HashMap<i32, Watermarks>>, KafkaError> {
+    let (lows, highs) = tokio::try_join!(
+        session.low_watermarks(topics),
+        session.high_watermarks(topics)
+    )?;
+    Ok(merge_watermarks(&lows.complete()?, highs.complete()?))
 }
 
 pub fn merge_watermarks(

@@ -2,12 +2,30 @@ use foldhash::{HashMap, HashMapExt};
 use krafka::error::{ErrorCode, KrafkaError};
 
 use crate::kafka::error::KafkaError;
+use crate::kafka::session::OffsetLookup;
 
 /// krafka 0.27 reports Kafka's -1 for a timestamp past the last record as
 /// OffsetNotAvailable with this message. A broker sends the same code while
 /// its high watermark lags after a leader election, so only the message tells
 /// "no record" from a failed lookup.
 const NO_RECORD: &str = "the broker reported no offset for this spec";
+
+pub fn log_offsets(
+    listed: impl IntoIterator<Item = (String, i32, Result<i64, KrafkaError>)>,
+) -> OffsetLookup {
+    let mut lookup = OffsetLookup::default();
+    for (topic, partition, offset) in listed {
+        match offset {
+            Ok(offset) => lookup.insert(topic, partition, offset),
+            Err(KrafkaError::Broker {
+                code: ErrorCode::UnknownTopicOrPartition,
+                ..
+            }) => {}
+            Err(error) => lookup.fail(error.into()),
+        }
+    }
+    lookup
+}
 
 pub fn time_offsets(
     listed: impl IntoIterator<Item = (String, i32, Result<i64, KrafkaError>)>,
@@ -31,18 +49,6 @@ pub fn time_offsets(
     Ok(offsets)
 }
 
-pub fn known_offsets(
-    listed: impl IntoIterator<Item = (String, i32, Result<i64, KrafkaError>)>,
-) -> HashMap<String, HashMap<i32, i64>> {
-    let mut out: HashMap<String, HashMap<i32, i64>> = HashMap::new();
-    for (topic, partition, offset) in listed {
-        if let Ok(offset) = offset {
-            out.entry(topic).or_default().insert(partition, offset);
-        }
-    }
-    out
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -57,6 +63,28 @@ mod tests {
 
     fn unknown() -> Result<i64, KrafkaError> {
         broker(ErrorCode::UnknownTopicOrPartition, "unknown")
+    }
+
+    #[test]
+    fn log_offsets_keep_a_failed_partition_apart_from_an_unknown_one() {
+        let listed = || {
+            [
+                ("orders".into(), 0, Ok(0)),
+                ("orders".into(), 1, Ok(12)),
+                ("payments".into(), 0, unknown()),
+            ]
+        };
+        let answered =
+            HashMap::from_iter([("orders".into(), HashMap::from_iter([(0, 0), (1, 12)]))]);
+
+        assert_eq!(
+            log_offsets(listed()).complete().expect("no failure"),
+            answered
+        );
+
+        let failed = || listed().into_iter().chain([("orders".into(), 2, denied())]);
+        assert_eq!(log_offsets(failed()).found(), answered);
+        assert!(log_offsets(failed()).complete().is_err());
     }
 
     #[test]
@@ -81,20 +109,5 @@ mod tests {
                 time_offsets([("orders".into(), 0, Ok(12)), ("orders".into(), 1, failure)]);
             assert!(failed.is_err(), "{failed:?}");
         }
-    }
-
-    #[test]
-    fn known_offsets_skip_partitions_without_an_offset() {
-        let offsets = known_offsets([
-            ("orders".into(), 0, Ok(0)),
-            ("orders".into(), 1, Ok(12)),
-            ("orders".into(), 2, denied()),
-            ("payments".into(), 0, unknown()),
-        ]);
-
-        assert_eq!(
-            offsets,
-            HashMap::from_iter([("orders".into(), HashMap::from_iter([(0, 0), (1, 12)]))])
-        );
     }
 }

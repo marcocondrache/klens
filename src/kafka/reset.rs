@@ -4,7 +4,7 @@ use futures::future::try_join_all;
 use crate::kafka::error::KafkaError;
 use crate::kafka::group::CommittedOffset;
 use crate::kafka::metadata::Watermarks;
-use crate::kafka::session::{ClusterSession, watermarks};
+use crate::kafka::session::{ClusterSession, complete_watermarks};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ResetTarget {
@@ -76,7 +76,7 @@ pub async fn plan_reset(
             }
         }
     }
-    let marks = watermarks(session, &wanted).await?;
+    let marks = complete_watermarks(session, &wanted).await?;
     let at_times = match to {
         ResetTarget::Timestamp(timestamp) => offsets_at(session, &wanted, timestamp).await?,
         _ => HashMap::new(),
@@ -160,6 +160,25 @@ mod tests {
             ),
             "{planned:?}"
         );
+    }
+
+    #[tokio::test]
+    async fn a_reset_fails_when_kafka_fails_to_list_either_end_of_the_log() {
+        let broker = Broker::orders(4).await;
+        let client = broker.client().await;
+        broker.on_once(ApiKey::ListOffsets, |_| {
+            Control::Error(ErrorCode::TopicAuthorizationFailed)
+        });
+
+        let planned = plan_reset(
+            &client,
+            "billing",
+            Some(("orders", &[0])),
+            ResetTarget::Earliest,
+        )
+        .await;
+
+        assert_denied(&planned);
     }
 
     #[tokio::test]

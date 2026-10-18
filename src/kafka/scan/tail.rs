@@ -84,6 +84,7 @@ impl Tail {
         let mut start: Vec<TailPosition> = session
             .high_watermarks(&wanted)
             .await?
+            .found()
             .remove(&query.topic)
             .unwrap_or_default()
             .into_iter()
