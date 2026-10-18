@@ -87,4 +87,4 @@ klens reads Kafka as the user that `sasl` or the client certificate names. Kafka
 
 ## Check the connection
 
-Open the cluster in the UI. The cluster switcher shows a gray dot until klens has read the cluster, and a red one if the first read failed. A failure also shows **Cluster unreachable** at the top of each page with the error. `GET /api/clusters/<name>` returns the health of each background read with its last error.
+Open the cluster in the UI. The cluster switcher shows a gray dot until klens has read the cluster, and a red one if the first read failed. A failure also shows **Cluster unreachable** at the top of each page with the error. klens starts even when a cluster is down, serves the other clusters, and keeps trying to reach the one that is down. `GET /api/clusters/<name>` returns the health of each background read with its last error.

@@ -62,6 +62,6 @@ allowed_hosts: [localhost, 127.0.0.1, "::1", kafka-ui.internal]
 ## Check the container
 
 - `GET /health` answers `204` once the process listens.
-- `GET /ready` answers `204` once klens has read every configured cluster, and `503` before.
+- `GET /ready` answers `204` once klens has read every configured cluster or failed to reach it, and `503` before.
 
 A config that klens cannot read stops the container at once. The log names the file, the key, the line, and the column.

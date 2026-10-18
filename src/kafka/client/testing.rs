@@ -7,6 +7,7 @@ use krafka::testing::FakeBroker;
 
 use super::KafkaClient;
 use crate::config::{self, Tuning};
+use crate::kafka::error::KafkaError;
 use crate::kafka::registry::testing::FakeRegistry;
 use crate::testing::yaml;
 
@@ -67,9 +68,7 @@ impl Broker {
     }
 
     pub async fn client_with(&self, tuning: &Tuning) -> KafkaClient {
-        KafkaClient::new("test", &self.config(), tuning)
-            .await
-            .expect("kafka client")
+        connected(KafkaClient::new("test", &self.config(), tuning)).await
     }
 
     pub async fn client_with_registry(&self, registry: &FakeRegistry) -> KafkaClient {
@@ -78,9 +77,7 @@ impl Broker {
             self.bootstrap_servers(),
             registry.uri()
         ));
-        KafkaClient::new("test", &config, &Tuning::default())
-            .await
-            .expect("kafka client")
+        connected(KafkaClient::new("test", &config, &Tuning::default())).await
     }
 
     async fn producer(&self) -> Producer {
@@ -94,6 +91,13 @@ impl Broker {
             .await
             .expect("producer")
     }
+}
+
+/// Connects up front, so a test's request counts leave out the bootstrap.
+async fn connected(client: Result<KafkaClient, KafkaError>) -> KafkaClient {
+    let client = client.expect("kafka client");
+    client.link().await.expect("kafka link");
+    client
 }
 
 impl Deref for Broker {

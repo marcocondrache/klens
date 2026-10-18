@@ -47,9 +47,8 @@ impl Klens {
             ",
             kafka.bootstrap_servers()
         ));
-        let clusters = Clusters::connect(&config.clusters, &config.tuning)
-            .await
-            .expect("klens connects to kafka");
+        let clusters =
+            Clusters::new(&config.clusters, &config.tuning).expect("klens sets up the cluster");
         let ingest = Ingest::start(&clusters, &config.tuning.ingest);
         let state = AppState::new(clusters, AuthState::disabled(), Limits::new(&config.tuning));
         let server = tokio::spawn(klens::serve([Listener {
