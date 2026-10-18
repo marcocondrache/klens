@@ -4,7 +4,6 @@ import {
   useTable,
   type Column,
   type ColumnDef,
-  type ColumnSizingState,
   type Header,
   type RowData,
   type SortingState,
@@ -22,7 +21,6 @@ import {
 import { cn } from "@/lib/utils";
 
 import { DataTableColumnHeader } from "./column-header";
-import { ColumnResizeHandle, resizedWidth, resizeOptions } from "./column-resize";
 import { features, type DataTableFeatures } from "./features";
 import { tablePlaceholder } from "./placeholder";
 import { CLICKABLE_ROW, clickableRowProps } from "./row-interaction";
@@ -67,14 +65,12 @@ export function DataTable<TData extends RowData>({
     enableMultiSort: false,
     sortDescFirst: false,
     onSortingChange: setSorting,
-    ...resizeOptions,
     state: { sorting },
   });
 
   const rows = table.getRowModel().rows;
   const leafColumns = table.getAllLeafColumns();
   const columnCount = leafColumns.length || columns.length;
-  const sizing = table.state.columnSizing;
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const virtualizer = useVirtualizer<HTMLDivElement, HTMLTableRowElement>({
@@ -98,11 +94,11 @@ export function DataTable<TData extends RowData>({
           <Table
             aria-busy={loading || undefined}
             className="table-fixed"
-            style={{ minWidth: minTableWidth(leafColumns, sizing) }}
+            style={{ minWidth: minTableWidth(leafColumns) }}
           >
             <colgroup>
               {leafColumns.map((column) => (
-                <col key={column.id} style={{ width: columnWidth(column, sizing) }} />
+                <col key={column.id} style={{ width: column.columnDef.meta?.width }} />
               ))}
             </colgroup>
             <TableHeader className="[&_tr]:border-b-0!">
@@ -120,9 +116,6 @@ export function DataTable<TData extends RowData>({
                         )}
                       >
                         {header.isPlaceholder ? null : <HeaderContent header={header} />}
-                        {meta?.width && header.column.getCanResize() ? (
-                          <ColumnResizeHandle header={header} />
-                        ) : null}
                       </TableHead>
                     );
                   })}
@@ -219,17 +212,9 @@ function HeaderContent<TData extends RowData>({
   return <FlexRender header={header} />;
 }
 
-function columnWidth<TData extends RowData>(
-  column: Column<DataTableFeatures, TData, unknown>,
-  sizing: ColumnSizingState,
-) {
-  return resizedWidth(column, sizing) ?? column.columnDef.meta?.width;
-}
-
 function minTableWidth<TData extends RowData>(
   columns: Array<Column<DataTableFeatures, TData, unknown>>,
-  sizing: ColumnSizingState,
 ) {
-  const widths = columns.map((column) => columnWidth(column, sizing) ?? MIN_FLEX_WIDTH);
+  const widths = columns.map((column) => column.columnDef.meta?.width ?? MIN_FLEX_WIDTH);
   return `calc(${widths.join(" + ")})`;
 }

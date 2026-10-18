@@ -48,7 +48,6 @@ export function userActionColumn({
 }) {
   return columnHelper.display({
     id: "action",
-    enableResizing: false,
     meta: { align: "right", width: "5rem" },
     cell: ({ row }) => (
       <>

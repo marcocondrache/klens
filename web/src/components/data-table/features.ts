@@ -1,6 +1,4 @@
 import {
-  columnResizingFeature,
-  columnSizingFeature,
   createSortedRowModel,
   metaHelper,
   rowSortingFeature,
@@ -17,8 +15,6 @@ export interface DataTableColumnMeta {
 
 export const features = tableFeatures({
   rowSortingFeature,
-  columnSizingFeature,
-  columnResizingFeature,
   sortedRowModel: createSortedRowModel(),
   sortFns: {
     alphanumeric: sortFn_alphanumeric,

@@ -54,7 +54,6 @@ export const aclColumns = columnHelper.columns([
 export function aclDeleteColumn(onDelete: (acl: Acl) => void) {
   return columnHelper.display({
     id: "delete",
-    enableResizing: false,
     meta: { align: "right", width: "3.5rem" },
     cell: ({ row }) => {
       const acl = row.original;
