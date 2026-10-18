@@ -1,5 +1,5 @@
 use std::collections::VecDeque;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
 use krafka::Kafka;
@@ -43,14 +43,21 @@ impl ScanPoolInner {
     fn take(&mut self, topic: &str, evicted: &mut Vec<Arc<Consumer>>) -> Option<Arc<Consumer>> {
         self.expire(evicted);
 
-        while let Some(index) = self.parked.iter().rposition(|parked| parked.topic == topic) {
-            let candidate = self.parked.remove(index).expect("index from rposition");
+        while let Some(candidate) = self.remove_newest(topic) {
             if !candidate.consumer.is_closed() {
                 return Some(candidate.consumer);
             }
             evicted.push(candidate.consumer);
         }
         None
+    }
+
+    fn remove_newest(&mut self, topic: &str) -> Option<Parked> {
+        let index = self
+            .parked
+            .iter()
+            .rposition(|parked| parked.topic == topic)?;
+        self.parked.remove(index)
     }
 
     fn park(&mut self, topic: &str, consumer: Arc<Consumer>, evicted: &mut Vec<Arc<Consumer>>) {
@@ -74,12 +81,10 @@ impl ScanPoolInner {
     }
 
     fn expire(&mut self, evicted: &mut Vec<Arc<Consumer>>) {
-        while self
+        while let Some(expired) = self
             .parked
-            .front()
-            .is_some_and(|parked| parked.since.elapsed() > self.ttl)
+            .pop_front_if(|parked| parked.since.elapsed() > self.ttl)
         {
-            let expired = self.parked.pop_front().expect("non-empty front");
             evicted.push(expired.consumer);
         }
     }
@@ -100,7 +105,7 @@ impl ScanPool {
         });
 
         let weak = Arc::downgrade(&pool);
-        let period = pool.inner.lock().expect("scan pool").ttl;
+        let period = tuning.pool_idle_ttl;
         tokio::spawn(async move {
             let mut ticker = tokio::time::interval(period);
             ticker.tick().await;
@@ -144,18 +149,22 @@ impl ScanPool {
 
     #[cfg(test)]
     pub(super) fn parked(&self, topic: &str) -> usize {
-        self.inner
-            .lock()
-            .expect("scan pool")
+        self.idle()
             .parked
             .iter()
             .filter(|parked| parked.topic == topic)
             .count()
     }
 
+    // Every update leaves the queue whole, so a guard a panic poisoned still
+    // holds a usable pool.
+    fn idle(&self) -> MutexGuard<'_, ScanPoolInner> {
+        self.inner.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
     fn with_idle<T>(&self, op: impl FnOnce(&mut ScanPoolInner, &mut Vec<Arc<Consumer>>) -> T) -> T {
         let mut evicted = Vec::new();
-        let result = op(&mut self.inner.lock().expect("scan pool"), &mut evicted);
+        let result = op(&mut self.idle(), &mut evicted);
         for consumer in evicted {
             retire(consumer);
         }

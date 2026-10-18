@@ -1,6 +1,6 @@
 use std::sync::Arc;
-use std::sync::RwLock;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{PoisonError, RwLock, RwLockWriteGuard};
 use std::time::Duration;
 
 use arc_swap::ArcSwapOption;
@@ -77,13 +77,13 @@ impl<T> Lane<T> {
     pub fn commit(&self, next: Arc<T>) -> u64 {
         self.table.store(Some(next));
         let version = self.version.fetch_add(1, Ordering::AcqRel) + 1;
-        self.health.write().expect("lane health lock").updated_at = Some(Timestamp::now());
+        self.health_mut().updated_at = Some(Timestamp::now());
         self.commits.send_replace(());
         version
     }
 
     pub fn record_poll(&self, elapsed: Duration, error: Option<String>) {
-        let mut health = self.health.write().expect("lane health lock");
+        let mut health = self.health_mut();
         health.last_poll_ms = Some(elapsed.as_millis() as u64);
         if error.is_none() {
             health.checked_at = Some(Timestamp::now());
@@ -94,7 +94,16 @@ impl<T> Lane<T> {
     }
 
     pub fn health(&self) -> LaneHealth {
-        self.health.read().expect("lane health lock").clone()
+        self.health
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
+    // Each field is written whole, so a guard a panic poisoned still holds a
+    // readable report.
+    fn health_mut(&self) -> RwLockWriteGuard<'_, LaneHealth> {
+        self.health.write().unwrap_or_else(PoisonError::into_inner)
     }
 
     pub fn kick(&self) {

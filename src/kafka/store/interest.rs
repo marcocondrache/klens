@@ -1,7 +1,7 @@
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
-use foldhash::{HashMap, HashMapExt, HashSet};
+use foldhash::{HashMap, HashSet};
 
 use tokio::time::Instant;
 
@@ -24,7 +24,16 @@ impl InterestState {
     }
 }
 
-type Groups = Arc<Mutex<HashMap<Arc<str>, InterestState>>>;
+#[derive(Debug, Clone, Default)]
+struct Groups(Arc<Mutex<HashMap<Arc<str>, InterestState>>>);
+
+impl Groups {
+    // A panic mid-update can at worst leave a group hot until its lease ends,
+    // so a poisoned guard still holds usable counts.
+    fn lock(&self) -> MutexGuard<'_, HashMap<Arc<str>, InterestState>> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
 
 #[derive(Debug)]
 pub struct InterestRegistry {
@@ -35,13 +44,13 @@ pub struct InterestRegistry {
 impl InterestRegistry {
     pub fn new(ttl: Duration) -> Self {
         Self {
-            groups: Arc::new(Mutex::new(HashMap::new())),
+            groups: Groups::default(),
             ttl,
         }
     }
 
     pub fn lease_group(&self, id: &str) -> InterestLease {
-        let mut groups = self.groups.lock().expect("interest registry lock");
+        let mut groups = self.groups.lock();
         let key = match groups.get_key_value(id) {
             Some((key, _)) => Arc::clone(key),
             None => Arc::from(id),
@@ -50,14 +59,14 @@ impl InterestRegistry {
         drop(groups);
 
         InterestLease {
-            groups: Arc::clone(&self.groups),
+            groups: self.groups.clone(),
             group: key,
         }
     }
 
     pub fn touch_group(&self, id: &Arc<str>) {
         let now = Instant::now();
-        let mut groups = self.groups.lock().expect("interest registry lock");
+        let mut groups = self.groups.lock();
         match groups.get_mut(id) {
             Some(state) => state.touched_at = Some(now),
             None => {
@@ -74,7 +83,7 @@ impl InterestRegistry {
 
     pub fn hot_groups(&self) -> HashSet<Arc<str>> {
         let now = Instant::now();
-        let mut groups = self.groups.lock().expect("interest registry lock");
+        let mut groups = self.groups.lock();
         groups.retain(|_, state| state.hot(now, self.ttl));
         groups.keys().cloned().collect()
     }
@@ -84,7 +93,6 @@ impl InterestRegistry {
         let now = Instant::now();
         self.groups
             .lock()
-            .expect("interest registry lock")
             .get(id)
             .is_some_and(|state| state.hot(now, self.ttl))
     }
@@ -98,7 +106,7 @@ pub struct InterestLease {
 
 impl Drop for InterestLease {
     fn drop(&mut self) {
-        let mut groups = self.groups.lock().expect("interest registry lock");
+        let mut groups = self.groups.lock();
         let Some(state) = groups.get_mut(&self.group) else {
             return;
         };
@@ -164,7 +172,7 @@ mod tests {
 
         assert!(interest.hot_groups().is_empty());
         assert!(
-            interest.groups.lock().unwrap().is_empty(),
+            interest.groups.lock().is_empty(),
             "the sweep must reclaim expired entries"
         );
     }

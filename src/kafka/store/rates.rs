@@ -1,4 +1,4 @@
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use foldhash::{HashMap, HashMapExt};
 
@@ -24,29 +24,35 @@ impl RateStore {
 
     /// Returns whether the stored rate changed.
     pub fn set(&self, topic: &Arc<str>, rate: f64) -> bool {
-        let mut rates = self.topic_rates.write().expect("rate store lock");
-        replace(&mut rates, topic, rate)
+        replace(&mut self.rates_mut(), topic, rate)
     }
 
     /// Stores every rate under one lock and keeps only the ones that changed.
     pub fn keep_changed(&self, updates: &mut Vec<TopicRate>) {
-        let mut rates = self.topic_rates.write().expect("rate store lock");
+        let mut rates = self.rates_mut();
         updates.retain(|update| replace(&mut rates, &update.topic, update.rate));
     }
 
     pub fn get(&self, topic: &str) -> Option<f64> {
-        self.topic_rates
-            .read()
-            .expect("rate store lock")
-            .get(topic)
-            .copied()
+        self.rates().get(topic).copied()
     }
 
     pub fn retain(&self, live: impl Fn(&str) -> bool) {
+        self.rates_mut().retain(|topic, _| live(topic));
+    }
+
+    // A rate is replaced whole, so a guard a panic poisoned still holds
+    // readable rates.
+    fn rates(&self) -> RwLockReadGuard<'_, HashMap<Arc<str>, f64>> {
+        self.topic_rates
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn rates_mut(&self) -> RwLockWriteGuard<'_, HashMap<Arc<str>, f64>> {
         self.topic_rates
             .write()
-            .expect("rate store lock")
-            .retain(|topic, _| live(topic));
+            .unwrap_or_else(PoisonError::into_inner)
     }
 }
 
