@@ -65,46 +65,45 @@ export function RecordView({
     <div className="flex min-h-0 flex-1 flex-col gap-3">
       {notice}
 
+      <div className="flex shrink-0 flex-wrap items-center gap-2">
+        <SearchField
+          className="min-w-48 flex-1"
+          value={filter.term}
+          onChange={(event) => onFilterChange({ ...filter, term: event.target.value })}
+          placeholder="Search key or value…"
+        />
+
+        <FilterBar
+          fields={fields}
+          value={filter.rules}
+          onChange={(rules) => onFilterChange({ ...filter, rules })}
+          custom={filters}
+        />
+
+        {showSchemaPicker ? (
+          <SchemaPicker
+            cluster={cluster}
+            preferred={`${topic.name}-value`}
+            value={filter.schemaId}
+            onChange={(schemaId) => onFilterChange({ ...filter, schemaId })}
+            label="Decode value with schema"
+            placeholder="Decode with schema…"
+            raw
+          />
+        ) : null}
+
+        {obfuscated ? <ObfuscatedBadge /> : null}
+
+        <div className="ml-auto flex items-center gap-2">
+          <RecordJump topic={topic} onOpen={open} />
+          {actions}
+        </div>
+      </div>
+
       <RecordTable
         key={source.scope}
         columns={recordColumns}
         data={records}
-        toolbar={
-          <>
-            <SearchField
-              className="min-w-48 flex-1"
-              value={filter.term}
-              onChange={(event) => onFilterChange({ ...filter, term: event.target.value })}
-              placeholder="Search key or value…"
-            />
-
-            <FilterBar
-              fields={fields}
-              value={filter.rules}
-              onChange={(rules) => onFilterChange({ ...filter, rules })}
-              custom={filters}
-            />
-
-            {showSchemaPicker ? (
-              <SchemaPicker
-                cluster={cluster}
-                preferred={`${topic.name}-value`}
-                value={filter.schemaId}
-                onChange={(schemaId) => onFilterChange({ ...filter, schemaId })}
-                label="Decode value with schema"
-                placeholder="Decode with schema…"
-                raw
-              />
-            ) : null}
-
-            {obfuscated ? <ObfuscatedBadge /> : null}
-
-            <div className="ml-auto flex items-center gap-2">
-              <RecordJump topic={topic} onOpen={open} />
-              {actions}
-            </div>
-          </>
-        }
         getRowId={recordId}
         loading={source.loading}
         refreshing={source.refreshing}
