@@ -184,6 +184,7 @@ impl FakeCluster {
                 id,
                 host: "localhost".into(),
                 port: 9092,
+                rack: None,
             });
             let configs = world.broker_configs[&1].clone();
             world.broker_configs.insert(id, configs);
@@ -316,7 +317,20 @@ impl FakeCluster {
             id,
             host: "localhost".into(),
             port: 9092 + id,
+            rack: None,
         });
+    }
+
+    pub fn set_rack(&self, broker: i32, rack: &str) {
+        let mut world = self.world();
+        if let Some(meta) = world
+            .metadata
+            .brokers
+            .iter_mut()
+            .find(|meta| meta.id == broker)
+        {
+            meta.rack = Some(rack.to_owned());
+        }
     }
 
     pub fn put_group(&self, group: GroupSnapshot) {

@@ -971,6 +971,21 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn metadata_reads_the_rack_each_broker_advertises() {
+        let broker = Broker::start().await;
+        broker.set_broker_rack(0, Some("eu-west-1a"));
+
+        let meta = broker.client().await.metadata().await.expect("metadata");
+
+        let racks: Vec<_> = meta
+            .brokers
+            .iter()
+            .map(|meta| (meta.id, meta.rack.as_deref()))
+            .collect();
+        assert_eq!(racks, [(0, Some("eu-west-1a"))]);
+    }
+
+    #[tokio::test]
     async fn a_partition_kafka_cannot_list_has_no_offset() {
         let broker = Broker::orders(1).await;
         let client = broker.client().await;

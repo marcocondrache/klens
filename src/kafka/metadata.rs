@@ -22,6 +22,7 @@ pub struct BrokerMetadata {
     pub id: i32,
     pub host: String,
     pub port: i32,
+    pub rack: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

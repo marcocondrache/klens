@@ -51,6 +51,7 @@ pub fn metadata(topics: Vec<TopicMetadata>) -> MetadataSnapshot {
             id: 1,
             host: "localhost".into(),
             port: 9092,
+            rack: None,
         }],
         topics,
     }

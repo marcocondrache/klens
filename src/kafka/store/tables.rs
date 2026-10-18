@@ -131,7 +131,7 @@ impl Topology {
                     BrokerInfo {
                         host: broker.host,
                         port: broker.port,
-                        rack: None,
+                        rack: broker.rack,
                     },
                 )
             })

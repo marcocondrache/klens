@@ -34,6 +34,7 @@ impl MetadataSnapshot {
                     id: broker.id(),
                     host: broker.host().to_owned(),
                     port: broker.port(),
+                    rack: broker.rack().map(str::to_owned),
                 })
                 .collect(),
             topics: cached
