@@ -365,10 +365,7 @@ mod tests {
             orders.retention_ms, None,
             "retention is unknown before the configs lane fetches this topic"
         );
-        assert_eq!(
-            orders.cleanup_policy,
-            crate::kafka::topic_config::CleanupPolicy::Delete
-        );
+        assert_eq!(orders.cleanup_policy, None);
         assert_eq!(rows[1].name.as_ref(), "payments");
         assert_eq!(rows[1].rate, 0.0, "a topic with no samples reads as idle");
 

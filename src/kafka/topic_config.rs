@@ -102,11 +102,11 @@ impl CleanupPolicy {
     }
 }
 
-pub fn topic_config_values(entries: Option<&[ConfigEntry]>) -> (CleanupPolicy, Option<i64>) {
+pub fn topic_config_values(
+    entries: Option<&[ConfigEntry]>,
+) -> (Option<CleanupPolicy>, Option<i64>) {
     let entries = entries.unwrap_or(&[]);
-    let cleanup_policy = ConfigEntry::lookup(entries, "cleanup.policy")
-        .map(CleanupPolicy::parse)
-        .unwrap_or(CleanupPolicy::Delete);
+    let cleanup_policy = ConfigEntry::lookup(entries, "cleanup.policy").map(CleanupPolicy::parse);
     let retention_ms =
         ConfigEntry::lookup(entries, "retention.ms").and_then(|value| value.parse().ok());
     (cleanup_policy, retention_ms)
@@ -239,10 +239,10 @@ mod tests {
     }
 
     #[test]
-    fn topic_config_values_default_to_delete_and_unknown_retention() {
+    fn topic_config_values_are_unknown_until_the_topic_reports_them() {
         assert_eq!(
             topic_config_values(None),
-            (CleanupPolicy::Delete, None),
+            (None, None),
             "no config reported"
         );
 
@@ -255,7 +255,7 @@ mod tests {
         }];
         assert_eq!(
             topic_config_values(Some(&entries)),
-            (CleanupPolicy::Delete, Some(604_800_000))
+            (None, Some(604_800_000))
         );
     }
 }

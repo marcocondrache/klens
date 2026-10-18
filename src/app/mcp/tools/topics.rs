@@ -122,7 +122,7 @@ struct TopicRowDetail {
     replication_factor: i32,
     produced_total: Option<i64>,
     retention_ms: Option<i64>,
-    cleanup_policy: CleanupPolicy,
+    cleanup_policy: Option<CleanupPolicy>,
 }
 
 impl TopicRow {
@@ -133,7 +133,7 @@ impl TopicRow {
                 replication_factor: row.replication_factor,
                 produced_total: counted.then_some(row.produced_total),
                 retention_ms: row.retention_ms,
-                cleanup_policy: row.cleanup_policy.into(),
+                cleanup_policy: row.cleanup_policy.map(Into::into),
             }),
             name: row.name.to_string(),
             partition_count: row.partition_count,
@@ -229,7 +229,7 @@ struct TopicSummary {
     disk_bytes: Option<i64>,
     rate: Option<f64>,
     retention_ms: Option<i64>,
-    cleanup_policy: CleanupPolicy,
+    cleanup_policy: Option<CleanupPolicy>,
     under_replicated_partitions: usize,
     offline_partitions: usize,
 }
@@ -254,7 +254,7 @@ impl TopicSummary {
             disk_bytes: detail.disk_bytes,
             rate,
             retention_ms: detail.retention_ms,
-            cleanup_policy: detail.cleanup_policy.into(),
+            cleanup_policy: detail.cleanup_policy.map(Into::into),
             under_replicated_partitions: count(projections::PartitionRow::under_replicated),
             offline_partitions: count(projections::PartitionRow::offline),
         }

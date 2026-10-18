@@ -51,7 +51,11 @@ sizeBytes: number | null, rate: number,
 /**
  * Null until the topic's configs report a `retention.ms` value.
  */
-retentionMs: number | null, cleanupPolicy: CleanupPolicy, groupCount: number, underReplicated: boolean, };
+retentionMs: number | null, 
+/**
+ * Null until the topic's configs report a `cleanup.policy` value.
+ */
+cleanupPolicy: CleanupPolicy | null, groupCount: number, underReplicated: boolean, };
 
 export type PartitionRow = { id: number, leader: number, replicas: Array<number>, isr: Array<number>, lowWatermark: number, highWatermark: number, retained: number, underReplicated: boolean, 
 /**
@@ -73,7 +77,11 @@ diskBytes: number | null, rate: number,
 /**
  * Null until the topic's configs report a `retention.ms` value.
  */
-retentionMs: number | null, cleanupPolicy: CleanupPolicy, groupCount: number, underReplicated: boolean, };
+retentionMs: number | null, 
+/**
+ * Null until the topic's configs report a `cleanup.policy` value.
+ */
+cleanupPolicy: CleanupPolicy | null, groupCount: number, underReplicated: boolean, };
 
 export type CreateTopic = { name: string, 
 /**

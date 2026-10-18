@@ -97,11 +97,17 @@ export const topicColumns = columnHelper.columns([
     header: "Policy",
     size: 112,
     meta: { align: "right" },
-    cell: ({ getValue }) => (
-      <span className={isCompactCleanup(getValue()) ? "text-foreground" : "text-muted-foreground"}>
-        {formatCleanupPolicy(getValue())}
-      </span>
-    ),
+    cell: ({ getValue }) => {
+      const policy = getValue();
+      if (policy === null) {
+        return <PendingValue label="Fetching topic configs" className="ml-auto block" />;
+      }
+      return (
+        <span className={isCompactCleanup(policy) ? "text-foreground" : "text-muted-foreground"}>
+          {formatCleanupPolicy(policy)}
+        </span>
+      );
+    },
   }),
   columnHelper.accessor("groupCount", {
     id: "groups",
