@@ -4,21 +4,21 @@ use std::time::Duration;
 use foldhash::{HashMap, HashMapExt, HashSet};
 
 use async_trait::async_trait;
-use bytes::Bytes;
 use futures::StreamExt;
 use futures::stream::FuturesUnordered;
 use moka::future::Cache;
-use schemreg::{
-    AvroSchemaDecoder, Schema, SchemaId, SchemaKey, SchemaRegistryClient as _, decode_wire_prefix,
-    encode_wire_format,
-};
+use schemreg::{Schema, SchemaId, SchemaKey, SchemaRegistryClient as _, decode_wire_prefix};
 use serde_json::Value;
 use thiserror::Error;
 
+use super::avro::AvroCodec;
 use super::client::{Registry, SchemaRegistryClient};
 use super::protobuf::{ProtobufCodec, ProtobufError};
 use crate::kafka::model::SchemaType;
 use crate::kafka::scan::payload::{DecodedPayload, PayloadCodec, PayloadSlot};
+
+#[cfg(test)]
+use bytes::Bytes;
 
 const MAX_CACHED_SCHEMAS: u64 = 10_000;
 const FAILED_LOOKUP_TTL: Duration = Duration::from_secs(5);
@@ -52,18 +52,51 @@ impl Framing {
 #[derive(Clone)]
 pub(crate) struct PayloadDecoder {
     client: SchemaRegistryClient,
-    avro: Arc<AvroSchemaDecoder<Arc<Registry>>>,
-    pools: Cache<SchemaKey, Arc<ProtobufCodec>>,
+    codecs: Cache<SchemaKey, Resolved>,
     missing: Cache<SchemaKey, ()>,
     failed: Cache<SchemaKey, DecodeError>,
 }
 
 #[derive(Clone)]
 enum Resolved {
-    Avro,
+    Avro(Arc<AvroCodec>),
     Json,
     Protobuf(Arc<ProtobufCodec>),
     Missing,
+}
+
+impl Resolved {
+    fn compile(
+        schema_type: SchemaType,
+        source: &str,
+        dependencies: &[(String, String)],
+    ) -> Result<Self, DecodeError> {
+        match schema_type {
+            SchemaType::Avro => AvroCodec::compile(source, dependencies)
+                .map(|codec| Self::Avro(Arc::new(codec)))
+                .map_err(DecodeError::failed),
+            SchemaType::Json => Ok(Self::Json),
+            SchemaType::Protobuf => ProtobufCodec::compile(source, dependencies)
+                .map(|codec| Self::Protobuf(Arc::new(codec)))
+                .map_err(DecodeError::from),
+        }
+    }
+
+    fn decode(&self, framing: Framing, raw: &[u8]) -> Result<Value, DecodeError> {
+        let body = &raw[framing.payload_start.min(raw.len())..];
+
+        match self {
+            Self::Missing => Err(DecodeError::missing("schema id not found in registry")),
+            Self::Json => serde_json::from_slice(body).map_err(DecodeError::failed),
+            Self::Avro(codec) => codec.decode(body).map_err(DecodeError::failed),
+            Self::Protobuf(codec) => if framing.has_wire_prefix {
+                codec.decode_framed(body)
+            } else {
+                codec.decode_raw(body)
+            }
+            .map_err(DecodeError::from),
+        }
+    }
 }
 
 impl PayloadDecoder {
@@ -76,12 +109,9 @@ impl PayloadDecoder {
         missing_ttl: Duration,
         failed_ttl: Duration,
     ) -> Self {
-        let avro = AvroSchemaDecoder::new(client.registry().clone());
-
         Self {
             client,
-            avro: Arc::new(avro),
-            pools: Cache::builder().max_capacity(MAX_CACHED_SCHEMAS).build(),
+            codecs: Cache::builder().max_capacity(MAX_CACHED_SCHEMAS).build(),
             missing: Cache::builder()
                 .max_capacity(MAX_CACHED_SCHEMAS)
                 .time_to_live(missing_ttl)
@@ -128,17 +158,17 @@ impl PayloadDecoder {
 
         match SchemaType::from(schema.schema_type) {
             SchemaType::Json => Ok(Resolved::Json),
-            SchemaType::Avro => Ok(Resolved::Avro),
-            SchemaType::Protobuf => self.pool(key, &schema).await.map(Resolved::Protobuf),
+            schema_type => self.compiled(key, schema_type, &schema).await,
         }
     }
 
-    async fn pool(
+    async fn compiled(
         &self,
         key: SchemaKey,
+        schema_type: SchemaType,
         schema: &Schema,
-    ) -> Result<Arc<ProtobufCodec>, DecodeError> {
-        self.pools
+    ) -> Result<Resolved, DecodeError> {
+        self.codecs
             .try_get_with(key, async {
                 let dependencies = self
                     .client
@@ -146,12 +176,11 @@ impl PayloadDecoder {
                     .await
                     .map_err(DecodeError::failed)?;
                 let source = schema.schema.to_string();
-                let codec = tokio::task::spawn_blocking(move || {
-                    ProtobufCodec::compile(&source, &dependencies)
+                tokio::task::spawn_blocking(move || {
+                    Resolved::compile(schema_type, &source, &dependencies)
                 })
                 .await
-                .map_err(DecodeError::failed)??;
-                Ok::<_, DecodeError>(Arc::new(codec))
+                .map_err(DecodeError::failed)?
             })
             .await
             .map_err(|error| (*error).clone())
@@ -203,7 +232,7 @@ impl PayloadDecoder {
             };
 
             tokio::task::coop::consume_budget().await;
-            match self.decode_body(resolved, framing, &slot.raw).await {
+            match resolved.decode(framing, &slot.raw) {
                 Ok(json) => {
                     slot.decoded = Some(DecodedPayload::decoded(slot.raw.clone(), json));
                 }
@@ -212,41 +241,6 @@ impl PayloadDecoder {
         }
 
         failures
-    }
-
-    async fn decode_body(
-        &self,
-        resolved: &Resolved,
-        framing: Framing,
-        raw: &Bytes,
-    ) -> Result<Value, DecodeError> {
-        let body = &raw[framing.payload_start.min(raw.len())..];
-
-        match resolved {
-            Resolved::Missing => Err(DecodeError::missing("schema id not found in registry")),
-            Resolved::Json => serde_json::from_slice(body).map_err(DecodeError::failed),
-            Resolved::Avro => {
-                // The decoder reads the identifier off the wire prefix, so an
-                // override has to be handed bytes that carry one.
-                let framed = if framing.has_wire_prefix {
-                    raw.clone()
-                } else {
-                    encode_wire_format(framing.key, body)
-                };
-                let value = self
-                    .avro
-                    .decode(framed)
-                    .await
-                    .map_err(DecodeError::failed)?;
-                Value::try_from(value).map_err(DecodeError::failed)
-            }
-            Resolved::Protobuf(codec) => if framing.has_wire_prefix {
-                codec.decode_framed(body)
-            } else {
-                codec.decode_raw(body)
-            }
-            .map_err(DecodeError::from),
-        }
     }
 }
 
@@ -342,7 +336,7 @@ mod tests {
     use apache_avro::Schema as AvroSchema;
     use apache_avro::types::{Record, Value as AvroValue};
     use apache_avro::writer::datum::GenericDatumWriter;
-    use schemreg::encode_protobuf_wire_format;
+    use schemreg::{encode_protobuf_wire_format, encode_wire_format};
 
     use super::*;
     use crate::config::SchemaRegistryTuning;
