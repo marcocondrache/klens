@@ -182,8 +182,12 @@ impl Clusters {
         self.clusters.values()
     }
 
+    /// True once every cluster has read its topology or failed to, so a
+    /// cluster that is down does not hold back the others.
     pub fn ready(&self) -> bool {
-        self.clusters.values().all(|cluster| cluster.store.ready())
+        self.clusters
+            .values()
+            .all(|cluster| cluster.store.settled())
     }
 }
 
@@ -245,18 +249,16 @@ mod tests {
         );
         assert!(!clusters.ready());
 
-        let commit = |name| {
-            clusters
-                .get(name)
-                .unwrap()
-                .store
-                .topology
-                .commit(Arc::new(Topology::default()))
-        };
-        commit("prod");
+        let store = |name| Arc::clone(&clusters.get(name).unwrap().store);
+        store("prod").topology.commit(Arc::new(Topology::default()));
         assert!(!clusters.ready(), "one cluster is not the whole set");
 
-        commit("staging");
-        assert!(clusters.ready());
+        store("staging")
+            .topology
+            .record_poll(Duration::ZERO, Some("connection refused".to_owned()));
+        assert!(
+            clusters.ready(),
+            "a cluster that is down does not hold back the others"
+        );
     }
 }

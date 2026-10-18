@@ -100,7 +100,7 @@ Route the path prefix `/` to klens, so that the UI routes and `/api` both reach 
 | --- | --- | --- |
 | `startupProbe` | `GET /health`, every 5s, 36 failures | Passes once the process listens. |
 | `livenessProbe` | `GET /health`, every 20s | Restarts a process that stops answering. |
-| `readinessProbe` | `GET /ready`, every 10s | Passes once klens has read the topology of every configured cluster. |
+| `readinessProbe` | `GET /ready`, every 10s | Passes once klens has read the topology of every configured cluster or failed to reach it. |
 
 ### Pod
 

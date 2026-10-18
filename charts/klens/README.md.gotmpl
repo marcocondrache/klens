@@ -33,8 +33,8 @@ Set timeouts, pool sizes, limits, and lane cadence under `config.tuning`. The ch
 `bind` must be a SocketAddr the Service can reach. A loopback address fails render.
 A `config.bind` port that does not match `service.port` also fails render.
 
-`/health` is process liveness after listen. `/ready` waits for the first catalog
-snapshot on every configured cluster. `helm test` curls `/health`.
+`/health` is process liveness after listen. `/ready` waits for the first topology
+poll on every configured cluster, whether it succeeds or fails. `helm test` curls `/health`.
 
 replicaCount greater than 1 is legal. Login sessions stay in process memory
 and do not stick across pods.

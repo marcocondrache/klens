@@ -22,7 +22,7 @@ A cluster outside the caller's roles answers `404 UNKNOWN_CLUSTER`, the same as 
 | Route | Response |
 | --- | --- |
 | `GET /health` | `204` whenever the process runs. |
-| `GET /ready` | `204` once klens has read the topology of every configured cluster at least once, and `503` before. It stays `204` after that, even when later reads fail. |
+| `GET /ready` | `204` once klens has read the topology of every configured cluster at least once or failed to, and `503` before. A cluster that is down does not hold back the others. It stays `204` after that, even when later reads fail. |
 
 Both routes answer every host, need no session, and return no body. Point liveness checks at `/health` and readiness checks or load balancer health checks at `/ready`.
 

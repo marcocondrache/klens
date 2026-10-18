@@ -82,6 +82,12 @@ impl ClusterStore {
         self.topology.ready()
     }
 
+    /// True once the topology lane has committed or failed, so the cluster
+    /// reads as up or down rather than pending.
+    pub fn settled(&self) -> bool {
+        self.ready() || self.topology.health().last_error.is_some()
+    }
+
     pub fn search(&self, term: &str) -> Vec<SearchHit> {
         let topology = self.topology.load();
         let subjects = self.subjects.load();
