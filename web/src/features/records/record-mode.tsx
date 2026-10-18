@@ -6,13 +6,6 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Toggle } from "@/components/ui/toggle";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { StatusDot } from "@/components/status";
@@ -41,26 +34,34 @@ const TAIL: Record<TailStatus, { label: string; tone: Tone }> = {
 const QUIET =
   "font-normal text-muted-foreground hover:text-foreground aria-expanded:text-foreground aria-pressed:text-foreground";
 
-export function RecordOrderMenu({
+export function RecordOrderToggle({
   value,
   onChange,
 }: {
   value: RecordMode;
   onChange: (mode: RecordMode) => void;
 }) {
-  // The tail always shows the newest record first, so the menu says so and
+  // The tail always shows the newest record first, so the toggle says so and
   // stays locked until live is off.
   const order = value === "LIVE" ? "NEWEST" : value;
-  const { label, icon: Icon } = ORDER[order];
+  const next = order === "NEWEST" ? "OLDEST" : "NEWEST";
+  const Icon = ORDER[order].icon;
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        disabled={value === "LIVE"}
-        render={<Button variant="outline" aria-label={`Sort: ${label}`} className={QUIET} />}
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            variant="outline"
+            disabled={value === "LIVE"}
+            aria-label={`Sort: ${ORDER[order].label}`}
+            className={QUIET}
+            onClick={() => onChange(next)}
+          />
+        }
       >
         <Icon className="size-3.5" />
-        {/* Every label takes the same cell, so the trigger keeps the widest
+        {/* Every label takes the same cell, so the button keeps the widest
             one's width and the filter beside it holds still on a change. */}
         <span className="grid text-left">
           {ORDERS.map((candidate) => (
@@ -72,27 +73,9 @@ export function RecordOrderMenu({
             </span>
           ))}
         </span>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent className="w-auto min-w-36">
-        <DropdownMenuRadioGroup
-          value={order}
-          onValueChange={(next) => {
-            const picked = ORDERS.find((candidate) => candidate === next);
-            if (picked) onChange(picked);
-          }}
-        >
-          {ORDERS.map((candidate) => {
-            const { label, icon: Icon } = ORDER[candidate];
-            return (
-              <DropdownMenuRadioItem key={candidate} value={candidate} closeOnClick>
-                <Icon className="text-muted-foreground" />
-                {label}
-              </DropdownMenuRadioItem>
-            );
-          })}
-        </DropdownMenuRadioGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
+      </TooltipTrigger>
+      <TooltipContent>Show {ORDER[next].label.toLowerCase()}</TooltipContent>
+    </Tooltip>
   );
 }
 

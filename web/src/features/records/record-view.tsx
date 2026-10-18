@@ -11,7 +11,7 @@ import { recordColumns } from "./record-columns";
 import { partitionField, type RecordFilter } from "./record-filter";
 import { recordId } from "./record-id";
 import { RecordJump } from "./record-jump";
-import { LiveToggle, RecordOrderMenu, type RecordMode } from "./record-mode";
+import { LiveToggle, RecordOrderToggle, type RecordMode } from "./record-mode";
 import { RecordSheet } from "./record-sheet";
 import { RecordTable } from "./record-table";
 import { SchemaPicker } from "./schema-picker";
@@ -81,7 +81,7 @@ export function RecordView({
           placeholder="Search key or value…"
         />
 
-        <RecordOrderMenu value={mode} onChange={onModeChange} />
+        <RecordOrderToggle value={mode} onChange={onModeChange} />
 
         <FilterBar
           fields={fields}
