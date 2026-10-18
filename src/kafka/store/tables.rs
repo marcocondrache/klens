@@ -5,7 +5,9 @@ use foldhash::{HashMap, HashMapExt, HashSet};
 
 use crate::kafka::group::{CommittedOffset, GroupMember, GroupSnapshot, GroupState};
 use crate::kafka::metadata::{MetadataSnapshot, PartitionMetadata, Watermarks};
-use crate::kafka::registry::{SchemaCompatibility, SchemaSubject, SchemaType};
+use crate::kafka::registry::{
+    KnownSchemas, LatestSchema, SchemaCompatibility, SchemaSubject, SchemaType,
+};
 use crate::kafka::storage::LogDir;
 use crate::kafka::topic_config::ConfigEntry;
 
@@ -420,6 +422,17 @@ impl SubjectTable {
 
     pub fn get(&self, subject: &str) -> Option<&SubjectInfo> {
         self.subjects.get(subject)
+    }
+}
+
+impl KnownSchemas for SubjectTable {
+    fn latest(&self, subject: &str) -> Option<LatestSchema> {
+        let info = self.get(subject)?;
+        Some(LatestSchema {
+            version: info.latest_version,
+            id: info.id,
+            schema_type: info.schema_type,
+        })
     }
 }
 

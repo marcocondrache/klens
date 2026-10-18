@@ -14,8 +14,8 @@ use tokio::sync::OnceCell;
 use crate::config::{SchemaRegistry, SchemaRegistryTuning};
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::{
-    NewSchema, RegisteredSchema, RegisteredVersion, SchemaCompatibility, SchemaDeletion,
-    SchemaReference, SchemaSubject,
+    KnownSchemas, LatestSchema, NewSchema, RegisteredSchema, RegisteredVersion,
+    SchemaCompatibility, SchemaDeletion, SchemaReference, SchemaSubject,
 };
 
 const MAX_CACHED_SCHEMAS: usize = 10_000;
@@ -74,7 +74,10 @@ impl SchemaRegistryClient {
         }
     }
 
-    pub async fn subjects(&self) -> Result<Vec<SchemaSubject>, KafkaError> {
+    pub async fn subjects(
+        &self,
+        known: &dyn KnownSchemas,
+    ) -> Result<Vec<SchemaSubject>, KafkaError> {
         let names = self
             .registry
             .get_subjects()
@@ -87,7 +90,7 @@ impl SchemaRegistryClient {
             .map(|name| {
                 let global = &global;
                 async move {
-                    let loaded = self.load_subject(&name, global).await;
+                    let loaded = self.load_subject(&name, known.latest(&name), global).await;
                     if let Err(error) = &loaded {
                         tracing::warn!(
                             subject = name.as_str(),
@@ -336,34 +339,52 @@ impl SchemaRegistryClient {
     async fn load_subject(
         &self,
         name: &str,
+        known: Option<LatestSchema>,
         global: &OnceCell<SchemaCompatibility>,
     ) -> Result<SchemaSubject, KafkaError> {
-        let (versions, latest, compatibility) = tokio::try_join!(
-            async {
-                self.registry
-                    .get_versions(name)
-                    .await
-                    .map_err(|error| self.fail(error.to_string()))
-            },
-            async {
-                self.registry
-                    .get_latest_schema(name)
-                    .await
-                    .map_err(|error| self.fail(error.to_string()))
-            },
-            async { Ok(self.compatibility(name, global).await) },
-        )?;
+        let (versions, compatibility) =
+            tokio::join!(self.versions(name), self.compatibility(name, global));
+        let versions = versions?;
+
+        let latest_version = versions
+            .iter()
+            .copied()
+            .max()
+            .ok_or_else(|| self.fail("subject has no versions"))?;
+        let latest = match known.filter(|known| known.version == latest_version) {
+            Some(known) => known,
+            None => self.latest_schema(name, latest_version).await?,
+        };
 
         Ok(SchemaSubject {
             subject: name.to_owned(),
-            id: schema_id(&latest).ok_or_else(|| self.fail("schema is missing id"))?,
-            schema_type: latest.schema_type.into(),
-            latest_version: latest
-                .version
-                .map(SchemaVersion::as_i32)
-                .ok_or_else(|| self.fail("schema is missing version"))?,
-            versions: versions.into_iter().map(SchemaVersion::as_i32).collect(),
+            id: latest.id,
+            schema_type: latest.schema_type,
+            latest_version,
+            versions,
             compatibility,
+        })
+    }
+
+    async fn versions(&self, name: &str) -> Result<Vec<i32>, KafkaError> {
+        let versions = self
+            .registry
+            .get_versions(name)
+            .await
+            .map_err(|error| self.fail(error.to_string()))?;
+        Ok(versions.into_iter().map(SchemaVersion::as_i32).collect())
+    }
+
+    async fn latest_schema(&self, name: &str, version: i32) -> Result<LatestSchema, KafkaError> {
+        let schema = self
+            .registry
+            .get_schema_by_version(name, SchemaVersion::new(version))
+            .await
+            .map_err(|error| self.fail(error.to_string()))?;
+        Ok(LatestSchema {
+            version,
+            id: schema_id(&schema).ok_or_else(|| self.fail("schema is missing id"))?,
+            schema_type: schema.schema_type.into(),
         })
     }
 
@@ -479,10 +500,15 @@ mod tests {
     use super::*;
     use crate::kafka::model::SchemaType;
     use crate::kafka::registry::testing::{FakeRegistry, Schema};
+    use crate::kafka::store::SubjectTable;
     use crate::testing::{LogCapture, yaml};
 
     fn string() -> Schema {
         Schema::avro(r#""string""#)
+    }
+
+    async fn sweep(client: &SchemaRegistryClient) -> Result<Vec<SchemaSubject>, KafkaError> {
+        client.subjects(&SubjectTable::default()).await
     }
 
     async fn registry_of(subjects: &[&str]) -> FakeRegistry {
@@ -501,7 +527,7 @@ mod tests {
         }
         registry.set_compatibility("orders-value", "FULL");
 
-        let subjects = registry.client().subjects().await.unwrap();
+        let subjects = sweep(&registry.client()).await.unwrap();
 
         assert_eq!(subjects.len(), 1);
         let subject = &subjects[0];
@@ -517,7 +543,7 @@ mod tests {
     async fn subjects_come_back_sorted_by_name() {
         let registry = registry_of(&["b-value", "a-value"]).await;
 
-        let subjects = registry.client().subjects().await.unwrap();
+        let subjects = sweep(&registry.client()).await.unwrap();
 
         let names: Vec<&str> = subjects.iter().map(|s| s.subject.as_str()).collect();
         assert_eq!(names, vec!["a-value", "b-value"]);
@@ -528,7 +554,7 @@ mod tests {
         let registry = registry_of(&["orders-value"]).await;
         registry.set_compatibility("orders-value", "FORWARD_TRANSITIVE");
 
-        let subjects = registry.client().subjects().await.unwrap();
+        let subjects = sweep(&registry.client()).await.unwrap();
 
         assert_eq!(
             subjects[0].compatibility,
@@ -546,7 +572,7 @@ mod tests {
         let registry = registry_of(&["orders-value"]).await;
         registry.set_global_compatibility("BACKWARD_TRANSITIVE");
 
-        let subjects = registry.client().subjects().await.unwrap();
+        let subjects = sweep(&registry.client()).await.unwrap();
 
         assert_eq!(
             subjects[0].compatibility,
@@ -559,7 +585,7 @@ mod tests {
     async fn a_missing_config_is_not_an_error() {
         let registry = registry_of(&["orders-value"]).await;
 
-        let subjects = registry.client().subjects().await.unwrap();
+        let subjects = sweep(&registry.client()).await.unwrap();
 
         assert_eq!(subjects.len(), 1);
         assert_eq!(subjects[0].compatibility, SchemaCompatibility::None);
@@ -571,7 +597,7 @@ mod tests {
         registry.set_global_compatibility("BACKWARD_TRANSITIVE");
         registry.ignore_default_to_global();
 
-        let subjects = registry.client().subjects().await.unwrap();
+        let subjects = sweep(&registry.client()).await.unwrap();
 
         assert_eq!(subjects.len(), 2);
         for subject in &subjects {
@@ -593,7 +619,7 @@ mod tests {
         registry.set_global_compatibility("BACKWARD");
         registry.fail("/config/orders-value");
 
-        let subjects = registry.client().subjects().await.unwrap();
+        let subjects = sweep(&registry.client()).await.unwrap();
 
         assert_eq!(subjects[0].compatibility, SchemaCompatibility::None);
     }
@@ -603,7 +629,7 @@ mod tests {
         let registry = registry_of(&["good-value", "bad-value"]).await;
         registry.fail("/subjects/bad-value/versions");
 
-        let subjects = registry.client().subjects().await.unwrap();
+        let subjects = sweep(&registry.client()).await.unwrap();
 
         let names: Vec<&str> = subjects.iter().map(|s| s.subject.as_str()).collect();
         assert_eq!(names, vec!["good-value"]);
@@ -615,7 +641,7 @@ mod tests {
         registry.fail("/subjects/orders%22%0Auser=%22mallory/versions");
         let logs = LogCapture::at(tracing::Level::WARN);
 
-        registry.client().subjects().await.unwrap();
+        sweep(&registry.client()).await.unwrap();
 
         logs.assert_contains(r#"skipping subject subject="orders\"\nuser=\"mallory""#);
         logs.assert_lacks("\nuser=");
@@ -626,7 +652,7 @@ mod tests {
         let registry = registry_of(&["orders-value"]).await;
         registry.fail("/subjects");
 
-        let error = registry.client().subjects().await.unwrap_err();
+        let error = sweep(&registry.client()).await.unwrap_err();
 
         assert!(matches!(error, KafkaError::SchemaRegistry { .. }));
     }
@@ -719,7 +745,7 @@ mod tests {
     async fn subject_names_are_percent_encoded() {
         let registry = registry_of(&["orders/v1-value"]).await;
 
-        let subjects = registry.client().subjects().await.unwrap();
+        let subjects = sweep(&registry.client()).await.unwrap();
 
         assert_eq!(subjects[0].subject, "orders/v1-value");
         assert_eq!(
@@ -741,7 +767,7 @@ mod tests {
         )
         .unwrap();
 
-        client.subjects().await.unwrap();
+        sweep(&client).await.unwrap();
 
         let expected = format!(
             "Basic {}",
@@ -777,7 +803,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(registered, RegisteredVersion { id: 2, version: 2 });
-        let subjects = registry.client().subjects().await.unwrap();
+        let subjects = sweep(&registry.client()).await.unwrap();
         assert_eq!(subjects[0].versions, vec![1, 2]);
     }
 
@@ -893,7 +919,7 @@ mod tests {
             .await
             .unwrap();
 
-        let subjects = registry.client().subjects().await.unwrap();
+        let subjects = sweep(&registry.client()).await.unwrap();
         assert_eq!(subjects[0].versions, vec![2]);
         assert_eq!(
             deletes(&registry).await,
@@ -911,7 +937,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert!(registry.client().subjects().await.unwrap().is_empty());
+        assert!(sweep(&registry.client()).await.unwrap().is_empty());
     }
 
     #[tokio::test]
@@ -1030,7 +1056,7 @@ mod tests {
             .await
             .unwrap();
 
-        let subjects = registry.client().subjects().await.unwrap();
+        let subjects = sweep(&registry.client()).await.unwrap();
         assert_eq!(
             subjects[0].compatibility,
             SchemaCompatibility::FullTransitive
