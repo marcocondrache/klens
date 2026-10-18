@@ -1,5 +1,5 @@
 import type { HTMLAttributes } from "react";
-import type { Column, RowData } from "@tanstack/react-table";
+import { Subscribe, type Column, type RowData } from "@tanstack/react-table";
 import { ArrowDownIcon, ArrowUpIcon, ChevronsUpDownIcon } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -19,39 +19,43 @@ export function DataTableColumnHeader<TData extends RowData, TValue>({
   title,
   className,
 }: DataTableColumnHeaderProps<TData, TValue>) {
-  "use no memo";
-
   const right = column.columnDef.meta?.align === "right";
 
   if (!column.getCanSort()) {
     return <div className={cn(right && "text-right", className)}>{title}</div>;
   }
 
-  const sorted = column.getIsSorted();
-  const Icon =
-    sorted === "desc" ? ArrowDownIcon : sorted === "asc" ? ArrowUpIcon : ChevronsUpDownIcon;
-
+  // The column object stays the same when the sort changes, so subscribe to the sorting state.
   return (
-    <div className={cn("flex", right && "justify-end", className)}>
-      <button
-        type="button"
-        onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-        aria-label={`Sort by ${title}`}
-        className={cn(
-          "group/sort -mx-1 inline-flex h-6 items-center gap-1 rounded-md px-1 outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50",
-          right && "flex-row-reverse",
-          sorted && "text-foreground",
-        )}
-      >
-        <span>{title}</span>
-        <Icon
-          aria-hidden
-          className={cn(
-            "size-3 shrink-0 transition-opacity",
-            sorted ? "text-brand opacity-100" : "opacity-0 group-hover/sort:opacity-60",
-          )}
-        />
-      </button>
-    </div>
+    <Subscribe source={column.table.atoms.sorting} selector={() => column.getIsSorted()}>
+      {(sorted) => {
+        const Icon =
+          sorted === "desc" ? ArrowDownIcon : sorted === "asc" ? ArrowUpIcon : ChevronsUpDownIcon;
+
+        return (
+          <div className={cn("flex", right && "justify-end", className)}>
+            <button
+              type="button"
+              onClick={() => column.toggleSorting(sorted === "asc")}
+              aria-label={`Sort by ${title}`}
+              className={cn(
+                "group/sort -mx-1 inline-flex h-6 items-center gap-1 rounded-md px-1 outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50",
+                right && "flex-row-reverse",
+                sorted && "text-foreground",
+              )}
+            >
+              <span>{title}</span>
+              <Icon
+                aria-hidden
+                className={cn(
+                  "size-3 shrink-0 transition-opacity",
+                  sorted ? "text-brand opacity-100" : "opacity-0 group-hover/sort:opacity-60",
+                )}
+              />
+            </button>
+          </div>
+        );
+      }}
+    </Subscribe>
   );
 }
