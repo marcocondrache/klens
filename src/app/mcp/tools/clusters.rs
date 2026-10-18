@@ -242,7 +242,7 @@ struct SearchResult {
 }
 
 impl SearchResult {
-    fn find(clusters: &[ClusterHandle<'_>], query: &str) -> Self {
+    async fn find(clusters: &[ClusterHandle<'_>], query: &str) -> Self {
         let boundary = Boundary::new();
         let mut hits = Vec::new();
         let mut not_ready = Vec::new();
@@ -258,6 +258,7 @@ impl SearchResult {
                 cluster
                     .store
                     .search(query)
+                    .await
                     .into_iter()
                     .map(|hit| ClusterHit {
                         cluster: cluster.name().to_owned(),
@@ -360,6 +361,6 @@ impl KlensMcp {
             }
             None => session.clusters().collect(),
         };
-        Ok(fit(SearchResult::find(&clusters, &search.query)))
+        Ok(fit(SearchResult::find(&clusters, &search.query).await))
     }
 }

@@ -18,7 +18,7 @@ async fn the_subject_lane_stores_the_list_projection_only() {
     assert_eq!(rows[0].subject.as_ref(), "orders.created-value");
     assert_eq!(rows[0].info.versions, vec![1, 2]);
     assert!(
-        !rig.store.search("orders.created-value").is_empty(),
+        !rig.store.search("orders.created-value").await.is_empty(),
         "subjects are searchable"
     );
 }

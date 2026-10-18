@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use crate::kafka::acl::AclListing;
+use crate::kafka::blocking::off_runtime;
 use crate::kafka::cluster::ClusterIdentity;
 use crate::kafka::quota::QuotaListing;
 use crate::kafka::scram::ScramListing;
@@ -88,10 +89,12 @@ impl ClusterStore {
         self.ready() || self.topology.health().last_error.is_some()
     }
 
-    pub fn search(&self, term: &str) -> Vec<SearchHit> {
+    pub async fn search(&self, term: &str) -> Vec<SearchHit> {
         let topology = self.topology.load();
         let subjects = self.subjects.load();
-        search::find(topology.as_deref(), subjects.as_deref(), term)
+        let term = term.to_owned();
+
+        off_runtime(move || search::find(topology.as_deref(), subjects.as_deref(), &term)).await
     }
 
     pub fn topic_rows(&self) -> Vec<TopicRow> {
@@ -334,8 +337,8 @@ mod tests {
         store
     }
 
-    #[test]
-    fn an_empty_store_is_not_ready_and_projects_nothing() {
+    #[tokio::test]
+    async fn an_empty_store_is_not_ready_and_projects_nothing() {
         let store = ClusterStore::named("local");
 
         assert!(!store.ready());
@@ -347,7 +350,7 @@ mod tests {
         assert!(store.group_detail("billing").is_none());
         assert!(store.topic_groups("orders").is_empty());
         assert!(store.topic_configs("orders").is_none());
-        assert!(store.search("orders").is_empty());
+        assert!(store.search("orders").await.is_empty());
 
         let health = store.health();
         assert_eq!(health.topic_count, 0);

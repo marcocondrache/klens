@@ -7,6 +7,7 @@ mod storage;
 mod topic_config;
 
 mod acl;
+mod blocking;
 mod cluster;
 mod group;
 mod limits;

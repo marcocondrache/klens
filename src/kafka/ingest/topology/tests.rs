@@ -67,7 +67,7 @@ async fn the_topology_lane_keeps_search_current() {
     rig.poll(&mut rig.topology()).await;
     rig.poll(&mut rig.subjects()).await;
 
-    let hits = rig.store.search("order");
+    let hits = rig.store.search("order").await;
     let ids: Vec<&str> = hits.iter().map(|hit| hit.id.as_str()).collect();
     assert_eq!(
         ids,
