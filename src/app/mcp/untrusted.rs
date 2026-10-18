@@ -7,6 +7,14 @@ use super::{MAX_CLIENT_VALUE_CHARS, MAX_MESSAGE_CHARS};
 #[cfg(test)]
 mod tests;
 
+// JSON leaves these line breaks raw, and a reader that splits lines on them
+// would see the untrusted text start a line of its own.
+const LINE_BREAKS: [(char, &str); 3] = [
+    ('\u{85}', "\\u0085"),
+    ('\u{2028}', "\\u2028"),
+    ('\u{2029}', "\\u2029"),
+];
+
 pub(super) struct Boundary {
     pub(super) open: String,
     pub(super) close: String,
@@ -27,14 +35,15 @@ impl Boundary {
     }
 
     pub(super) fn enclose(&self, text: &impl Serialize) -> String {
-        let json = serde_json::to_string(text).expect("untrusted text is serializable");
-        // JSON leaves these line breaks raw, and a reader that splits lines on
-        // them would see the untrusted text start a line of its own.
-        let line = json
-            .replace(&self.close, &self.escaped_close)
-            .replace('\u{85}', "\\u0085")
-            .replace('\u{2028}', "\\u2028")
-            .replace('\u{2029}', "\\u2029");
+        let mut line = serde_json::to_string(text).expect("untrusted text is serializable");
+        if line.contains(&self.close) {
+            line = line.replace(&self.close, &self.escaped_close);
+        }
+        for (raw, escaped) in LINE_BREAKS {
+            if line.contains(raw) {
+                line = line.replace(raw, escaped);
+            }
+        }
         format!("{}\n{line}\n{}", self.open, self.close)
     }
 }
