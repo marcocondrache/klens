@@ -31,6 +31,12 @@ impl Expiry<Id, Record> for UntilExpiry {
     }
 }
 
+impl ExpiringStore {
+    pub(crate) fn contains(&self, id: &Id) -> bool {
+        self.0.contains_key(id)
+    }
+}
+
 impl Default for ExpiringStore {
     fn default() -> Self {
         Self(Cache::builder().expire_after(UntilExpiry).build())
