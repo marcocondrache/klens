@@ -24,8 +24,6 @@ impl LogDirLane {
 
 #[async_trait]
 impl LaneSource for LogDirLane {
-    // The admin client learns the brokers it asks from the metadata the
-    // topology lane refreshes.
     type Upstream = Topology;
     type Table = LogDirTable;
     type Delta = LogDirsDelta;

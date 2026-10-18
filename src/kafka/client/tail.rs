@@ -50,7 +50,6 @@ impl TailLease {
     }
 }
 
-/// The pool closes once the consumer, its last owner, is gone.
 fn retire(consumer: Arc<Consumer>) {
     tokio::spawn(async move {
         let _ = tokio::time::timeout(RETIRE_GRACE, consumer.close()).await;

@@ -6,21 +6,16 @@ use crate::kafka::group::CommittedOffset;
 use crate::kafka::metadata::Watermarks;
 use crate::kafka::session::{ClusterSession, watermarks};
 
-/// Where a reset moves each committed offset. Every target lands between the
-/// partition's low and high watermarks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ResetTarget {
     Earliest,
     Latest,
     Offset(i64),
     Shift(i64),
-    /// The first record at or after this time, in milliseconds since the epoch.
     Timestamp(i64),
 }
 
 impl ResetTarget {
-    /// `at_time` is the partition's first offset at or after a timestamp
-    /// target. `None` when a shift has no committed offset to start from.
     fn place(self, from: Option<i64>, marks: Watermarks, at_time: Option<i64>) -> Option<i64> {
         let offset = match self {
             Self::Earliest => marks.low,
@@ -36,10 +31,7 @@ impl ResetTarget {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OffsetReset {
     pub group: String,
-    /// Without a topic, the reset covers every partition the group has
-    /// committed an offset for.
     pub topic: Option<String>,
-    /// Partitions of `topic`, or every partition of it when empty.
     pub partitions: Vec<i32>,
     pub to: ResetTarget,
 }
@@ -63,8 +55,6 @@ impl OffsetMove {
     }
 }
 
-/// Plans a reset of `group` from its live committed offsets and watermarks.
-/// Without `partitions`, it covers every partition the group has committed.
 pub async fn plan_reset(
     session: &dyn ClusterSession,
     group: &str,

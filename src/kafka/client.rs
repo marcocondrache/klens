@@ -747,8 +747,6 @@ impl KafkaClient {
     }
 }
 
-/// A broker that refuses a whole describe, as one without the right ACL
-/// does, is an answer for the listing to explain. Anything else failed.
 fn split_refusal<T: Default>(
     result: Result<T, KrafkaError>,
 ) -> Result<(Option<String>, T), KafkaError> {
@@ -763,8 +761,6 @@ fn owned(values: &[&str]) -> Vec<String> {
     values.iter().map(|&value| value.to_owned()).collect()
 }
 
-/// A broker that fails its listing would hide its groups, which would then
-/// look deleted.
 fn group_ids(
     listed: std::collections::HashMap<i32, Result<Vec<ConsumerGroupListing>, KrafkaError>>,
 ) -> Result<Vec<String>, KafkaError> {
@@ -790,7 +786,6 @@ fn offset_specs<Topic: AsRef<str>>(
         .collect()
 }
 
-/// A partition the broker could not answer for has no known offset.
 fn listed_offset_parts(
     (partition, listed): (TopicPartition, Result<ListedOffset, KrafkaError>),
 ) -> (String, i32, i64) {
@@ -1325,7 +1320,6 @@ mod tests {
             .expect("consumer");
         consumer.subscribe(["orders"]).await.expect("subscribe");
         let consumer = Arc::new(consumer);
-        // The group is joined by poll.
         let polling = tokio::spawn({
             let consumer = Arc::clone(&consumer);
             async move {

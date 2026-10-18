@@ -30,7 +30,6 @@ impl QuotaEntityType {
     }
 }
 
-/// One part of the entity a quota applies to. `None` is the default entity.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct QuotaEntity {
     pub entity_type: QuotaEntityType,
@@ -99,7 +98,6 @@ impl Display for ClientQuota {
 #[derive(Debug, Clone, PartialEq)]
 pub enum QuotaListing {
     Described(Vec<ClientQuota>),
-    /// klens's own Kafka user lacks `DESCRIBE_CONFIGS` on the cluster.
     Denied,
 }
 
@@ -109,7 +107,6 @@ pub struct DescribedQuota {
 }
 
 impl QuotaListing {
-    /// The values set on exactly `entity`, whose parts are in type order.
     pub fn values(&self, entity: &[QuotaEntity]) -> Option<&QuotaValues> {
         match self {
             Self::Described(quotas) => quotas

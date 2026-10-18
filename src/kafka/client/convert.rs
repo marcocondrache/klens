@@ -1,6 +1,3 @@
-//! Collected `Vec`s are shrunk because `collect` reuses the wider krafka
-//! allocation in place, and the store keeps them for as long as they live.
-
 use std::collections::HashMap;
 
 use bytes::Bytes;
@@ -48,8 +45,6 @@ impl MetadataSnapshot {
     }
 }
 
-/// A broker's answer for one item is the user's to act on. Anything else,
-/// such as a timeout, failed the call.
 pub(super) fn refused<T>(result: Result<T, KrafkaError>) -> Result<T, KafkaError> {
     result.map_err(|error| match error {
         KrafkaError::Broker { message, .. } => KafkaError::Refused(message),
@@ -57,7 +52,6 @@ pub(super) fn refused<T>(result: Result<T, KrafkaError>) -> Result<T, KafkaError
     })
 }
 
-/// DeleteRecords reads this offset as the partition's high watermark.
 const HIGH_WATERMARK: i64 = -1;
 
 impl RecordDeletion {

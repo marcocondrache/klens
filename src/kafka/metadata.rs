@@ -56,12 +56,9 @@ pub struct NewTopic {
     pub configs: BTreeMap<String, String>,
 }
 
-/// Records to delete from the start of a topic's partitions.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecordDeletion {
     pub topic: String,
-    /// Per partition, the offset whose earlier records go. `None` deletes
-    /// every record.
     pub before: BTreeMap<i32, Option<i64>>,
 }
 

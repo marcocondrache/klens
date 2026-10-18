@@ -21,9 +21,6 @@ impl LaneHealth {
     }
 }
 
-/// The pause after a poll that does not show a write yet. It doubles up to
-/// the max, so a change the broker reports in another shape costs a handful of
-/// polls rather than a tight loop.
 const REFRESH_BACKOFF: Duration = Duration::from_millis(50);
 const REFRESH_BACKOFF_MAX: Duration = Duration::from_secs(1);
 
