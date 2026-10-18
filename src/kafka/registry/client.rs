@@ -609,6 +609,22 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn an_unset_global_default_reads_as_none_quietly_but_a_failing_one_warns() {
+        let unset = registry_of(&["orders-value"]).await;
+        let failing = registry_of(&["orders-value"]).await;
+        failing.fail("/config");
+        let logs = LogCapture::at(tracing::Level::WARN);
+
+        let quiet = unset.client().subjects().await.unwrap();
+        logs.assert_lacks("falling back to NONE compatibility");
+        let warned = failing.client().subjects().await.unwrap();
+        logs.assert_contains("falling back to NONE compatibility");
+
+        assert_eq!(quiet[0].compatibility, SchemaCompatibility::None);
+        assert_eq!(warned[0].compatibility, SchemaCompatibility::None);
+    }
+
+    #[tokio::test]
     async fn a_failing_subject_is_skipped_not_fatal() {
         let registry = registry_of(&["good-value", "bad-value"]).await;
         registry.fail("/subjects/bad-value/versions");
