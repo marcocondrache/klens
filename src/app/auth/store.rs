@@ -7,8 +7,8 @@ use tower_sessions::cookie::time::OffsetDateTime;
 use tower_sessions::session::{Id, Record};
 use tower_sessions::session_store::{self, SessionStore};
 
-/// `MemoryStore` only hides an expired record, so every abandoned login
-/// would stay resident for the life of the process.
+/// `MemoryStore` only hides an expired record, so every ended session would
+/// stay resident for the life of the process.
 #[derive(Clone, Debug)]
 pub(crate) struct ExpiringStore(Cache<Id, Record>);
 

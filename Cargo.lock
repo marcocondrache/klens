@@ -340,6 +340,7 @@ checksum = "be44683b41ccb9ab2d23a5230015c9c3c55be97a25e4428366de8873103f7970"
 dependencies = [
  "axum-core",
  "bytes",
+ "cookie",
  "form_urlencoded",
  "futures-core",
  "futures-util",

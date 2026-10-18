@@ -25,7 +25,7 @@ axum = { version = "0.8", default-features = false, features = [
     "tokio",
     "tracing",
 ] }
-axum-extra = { version = "0.12", default-features = false, features = ["query"] }
+axum-extra = { version = "0.12", default-features = false, features = ["cookie-signed", "query"] }
 axum-login = "0.18"
 base64 = "0.23"
 bytes = "1"
