@@ -55,34 +55,46 @@ impl From<UpdateQuery> for Scope {
     }
 }
 
+/// What one change sends to one stream.
+enum Delivery {
+    /// The change in full, the same for every stream that sends it.
+    Firehose,
+    /// The one update the change makes inside the stream's scope.
+    Scoped(Update),
+    /// The change falls outside the stream's scope.
+    Skip,
+}
+
 impl Scope {
-    fn updates(&self, change: &Change) -> Vec<Update> {
+    fn events(&self, change: &Change) -> Vec<Event> {
+        match self.delivery(change) {
+            Delivery::Firehose => Update::firehose(change).iter().map(Update::sse).collect(),
+            Delivery::Scoped(update) => vec![update.sse()],
+            Delivery::Skip => Vec::new(),
+        }
+    }
+
+    fn delivery(&self, change: &Change) -> Delivery {
         match change {
-            Change::Watermarks(tick) => {
-                let topics = match self.topic.as_deref() {
-                    None => tick.rates.iter().map(TopicRate::from).collect(),
-                    Some(topic) => match tick.rate(topic) {
-                        None => return Vec::new(),
-                        Some(rate) => vec![TopicRate {
+            Change::Watermarks(tick) => match self.topic.as_deref() {
+                None => Delivery::Firehose,
+                Some(topic) => match tick.rate(topic) {
+                    None => Delivery::Skip,
+                    Some(rate) => Delivery::Scoped(Update::Watermarks {
+                        topics: vec![TopicRate {
                             topic: Arc::from(topic),
                             rate,
                         }],
-                    },
-                };
-                vec![Update::Watermarks { topics }]
-            }
+                    }),
+                },
+            },
 
             Change::GroupOffsets(wave) => match self.group.as_deref() {
-                Some(group) => wave
-                    .group(group)
-                    .map(|update| Update::group_lag(update, true))
-                    .into_iter()
-                    .collect(),
-                None => wave
-                    .groups
-                    .iter()
-                    .map(|update| Update::group_lag(update, false))
-                    .collect(),
+                None => Delivery::Firehose,
+                Some(group) => match wave.group(group) {
+                    None => Delivery::Skip,
+                    Some(update) => Delivery::Scoped(Update::group_lag(update, true)),
+                },
             },
 
             Change::Topology(delta) => {
@@ -93,53 +105,35 @@ impl Scope {
                             || group.is_some_and(|group| delta.touches_group(group))
                     }
                 };
-                if !relevant {
-                    return Vec::new();
+                if relevant {
+                    Delivery::Firehose
+                } else {
+                    Delivery::Skip
                 }
-                vec![Update::Topology {
-                    added_topics: names(&delta.added_topics),
-                    removed_topics: names(&delta.removed_topics),
-                    changed_topics: names(&delta.changed_topics),
-                    added_groups: names(&delta.added_groups),
-                    removed_groups: names(&delta.removed_groups),
-                    changed_groups: names(&delta.changed_groups),
-                    brokers_changed: delta.brokers_changed,
-                }]
             }
 
-            Change::Configs(delta) => {
-                let topics = match self.topic.as_deref() {
-                    None => names(&delta.topics),
-                    Some(topic) => {
-                        if !delta.topics.iter().any(|changed| changed.as_ref() == topic) {
-                            return Vec::new();
-                        }
-                        vec![topic.to_owned()]
-                    }
-                };
-                vec![Update::Configs { topics }]
-            }
-
-            Change::Subjects(delta) => vec![Update::Subjects {
-                removed: names(&delta.removed),
-                changed: names(&delta.changed),
-            }],
-
-            Change::LogDirs(delta) => match self.topic.as_deref() {
-                None => vec![Update::LogDirs {
-                    topics: names(&delta.topics),
-                    brokers_changed: delta.brokers_changed,
-                }],
-                Some(topic) if delta.touches_topic(topic) => vec![Update::LogDirs {
-                    topics: vec![topic.to_owned()],
-                    brokers_changed: false,
-                }],
-                Some(_) => Vec::new(),
+            Change::Configs(delta) => match self.topic.as_deref() {
+                None => Delivery::Firehose,
+                Some(topic) if delta.topics.iter().any(|changed| changed.as_ref() == topic) => {
+                    Delivery::Scoped(Update::Configs {
+                        topics: vec![topic.to_owned()],
+                    })
+                }
+                Some(_) => Delivery::Skip,
             },
 
-            Change::Acls => vec![Update::Acls],
-            Change::Quotas => vec![Update::Quotas],
-            Change::ScramUsers => vec![Update::ScramUsers],
+            Change::LogDirs(delta) => match self.topic.as_deref() {
+                None => Delivery::Firehose,
+                Some(topic) if delta.touches_topic(topic) => Delivery::Scoped(Update::LogDirs {
+                    topics: vec![topic.to_owned()],
+                    brokers_changed: false,
+                }),
+                Some(_) => Delivery::Skip,
+            },
+
+            Change::Subjects(_) | Change::Acls | Change::Quotas | Change::ScramUsers => {
+                Delivery::Firehose
+            }
         }
     }
 }
@@ -175,7 +169,7 @@ struct Stream {
     events: Receiver<Change>,
     _lease: Option<InterestLease>,
     guard: SessionGuard,
-    pending: std::vec::IntoIter<Update>,
+    pending: std::vec::IntoIter<Event>,
     cluster: String,
     scope: Scope,
     done: bool,
@@ -188,11 +182,11 @@ impl Stream {
                 if state.done {
                     return None;
                 }
-                if let Some(update) = state.pending.next() {
-                    return Some((Ok(update.sse()), state));
+                if let Some(event) = state.pending.next() {
+                    return Some((Ok(event), state));
                 }
 
-                match state.events.recv().await {
+                let change = match state.events.recv().await {
                     Err(RecvError::Closed) => return None,
                     Err(RecvError::Lagged(missed)) => {
                         tracing::debug!(
@@ -202,14 +196,14 @@ impl Stream {
                         );
                         return Some((Ok(Update::Resync.sse()), state));
                     }
-                    Ok(change) => {
-                        if let Some(error) = state.denied() {
-                            state.done = true;
-                            return Some((Ok(error.event()), state));
-                        }
-                        state.pending = state.scope.updates(&change).into_iter();
-                    }
+                    Ok(change) => change,
+                };
+
+                if let Some(error) = state.denied() {
+                    state.done = true;
+                    return Some((Ok(error.event()), state));
                 }
+                state.pending = state.scope.events(&change).into_iter();
             }
         })
         .boxed()
@@ -221,8 +215,4 @@ impl Stream {
         };
         access.cluster(&self.cluster).err().map(ApiError::from)
     }
-}
-
-fn names(values: &[Arc<str>]) -> Vec<String> {
-    values.iter().map(|value| String::from(&**value)).collect()
 }
