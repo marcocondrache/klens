@@ -13,9 +13,9 @@ use crate::app::mcp::reply::{Rows, fit, reply};
 use crate::app::mcp::server::{KlensMcp, ToolResult};
 use crate::app::mcp::tools::gates;
 use crate::app::mcp::untrusted::Boundary;
-use crate::app::mcp::{CLIENT_VALUES_NOTICE, MAX_QUERY_CHARS};
-use crate::app::resources::search::SearchHit;
+use crate::app::mcp::CLIENT_VALUES_NOTICE;
 use crate::app::resources::search::types::SearchKind;
+use crate::app::resources::search::{MAX_QUERY_CHARS, SearchHit, check_query_length};
 use crate::kafka::store::projections::ClusterHealthView;
 use crate::kafka::store::{Lane, LaneHealth};
 
@@ -347,11 +347,7 @@ impl KlensMcp {
         session: Session,
         Parameters(search): Parameters<SearchQuery>,
     ) -> ToolResult {
-        if search.query.chars().count() > MAX_QUERY_CHARS {
-            return Err(ApiError::unprocessable(format!(
-                "a query holds at most {MAX_QUERY_CHARS} characters"
-            )));
-        }
+        check_query_length(&search.query)?;
         let clusters = match &search.cluster {
             Some(name) => {
                 let cluster = session.cluster(name)?;
