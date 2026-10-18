@@ -91,7 +91,6 @@ const columns = columnHelper.columns([
 function editColumn(onEdit: (entry: ConfigEntry) => void) {
   return columnHelper.display({
     id: "edit",
-    enableResizing: false,
     meta: { align: "right", width: "3.5rem" },
     cell: ({ row }) =>
       row.original.readOnly ? null : (

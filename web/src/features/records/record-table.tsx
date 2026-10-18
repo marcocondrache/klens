@@ -8,11 +8,6 @@ import {
 } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
 
-import {
-  ColumnResizeHandle,
-  resizedWidth,
-  resizeOptions,
-} from "@/components/data-table/column-resize";
 import { features, type DataTableFeatures } from "@/components/data-table/features";
 import { tablePlaceholder } from "@/components/data-table/placeholder";
 import { CLICKABLE_ROW, clickableRowProps } from "@/components/data-table/row-interaction";
@@ -81,14 +76,12 @@ export function RecordTable<TData extends RowData>({
     columns,
     getRowId,
     enableSorting: false,
-    ...resizeOptions,
   });
 
   const rows = table.getRowModel().rows;
   const leafColumns = table.getAllLeafColumns();
-  const sizing = table.state.columnSizing;
   const gridTemplateColumns = leafColumns
-    .map((column) => resizedWidth(column, sizing) ?? COLUMN_TRACK[column.id] ?? "minmax(0,1fr)")
+    .map((column) => COLUMN_TRACK[column.id] ?? "minmax(0,1fr)")
     .join(" ");
   const loaderCount = hasNextPage || isFetchingNextPage || isFetchNextPageError ? 1 : 0;
   const count = rows.length + loaderCount;
@@ -283,12 +276,11 @@ function HeaderRow<TData extends RowData>({
             key={header.id}
             role="columnheader"
             className={cn(
-              "relative flex h-10 items-center px-3 text-left text-xs font-medium whitespace-nowrap text-muted-foreground first:pl-4 last:pr-4",
+              "flex h-10 items-center px-3 text-left text-xs font-medium whitespace-nowrap text-muted-foreground first:pl-4 last:pr-4",
               meta?.align === "right" && "justify-end text-right",
             )}
           >
             {header.isPlaceholder ? null : <table.FlexRender header={header} />}
-            {column.id === "value" ? null : <ColumnResizeHandle header={header} />}
           </div>
         );
       })}
