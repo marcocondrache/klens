@@ -126,7 +126,7 @@ export function PagedRecords({
                     download
                     aria-label="Download matching records as NDJSON"
                     className={cn(
-                      buttonVariants({ variant: "ghost", size: "icon" }),
+                      buttonVariants({ variant: "outline", size: "icon" }),
                       "text-muted-foreground",
                     )}
                   />
