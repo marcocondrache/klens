@@ -34,7 +34,7 @@ pub use watermarks::WatermarkLane;
 
 #[must_use = "dropping an Ingest aborts its lanes"]
 pub struct Ingest {
-    tasks: JoinSet<()>,
+    _tasks: JoinSet<()>,
 }
 
 impl Ingest {
@@ -88,11 +88,7 @@ impl Ingest {
             );
         }
 
-        Self { tasks }
-    }
-
-    pub fn lane_count(&self) -> usize {
-        self.tasks.len()
+        Self { _tasks: tasks }
     }
 }
 

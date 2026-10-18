@@ -170,9 +170,13 @@ async fn with_auth_on_and_no_secret_mcp_still_answers_calls() {
 
     let reply = app
         .reply_to_mcp(mcp_request(&call_body("klens_clusters", json!({}))))
-        .await;
+        .await
+        .ok();
 
-    assert_eq!(reply.status, StatusCode::OK);
+    assert_eq!(
+        structured(&reply["result"])["clusters"][0]["cluster"],
+        "local"
+    );
 }
 
 fn carrying(authorization: &[&str]) -> Request<Body> {

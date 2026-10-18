@@ -4,7 +4,7 @@ use std::time::Duration;
 use futures::future::try_join_all;
 use indexmap::IndexMap;
 
-use crate::config::{self, IngestTuning, Tuning};
+use crate::config::{self, Tuning};
 use crate::kafka::client::KafkaClient;
 use crate::kafka::error::KafkaError;
 use crate::kafka::limits::{RecordLimits, TailLimits};
@@ -137,11 +137,12 @@ impl Clusters {
     }
 
     /// Every cluster is read-only, as when the config omits `writable`.
-    pub fn from_sessions(sessions: Vec<impl ClusterSession>) -> Self {
+    #[cfg(test)]
+    pub(crate) fn from_sessions(sessions: Vec<impl ClusterSession>) -> Self {
         Self::from_clusters(sessions.into_iter().map(|session| {
             Cluster::new(
                 Arc::new(session),
-                IngestTuning::default().interest_ttl,
+                config::IngestTuning::default().interest_ttl,
                 false,
             )
         }))

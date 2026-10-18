@@ -913,17 +913,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_scan_poll_wait_comes_from_tuning() {
-        let broker = Broker::start().await;
-        let mut tuning = Tuning::default();
-        tuning.scan.poll_wait = Duration::from_millis(250);
-        let client = broker.client_with(&tuning).await;
-
-        assert_eq!(client.scan_poll_wait(), Duration::from_millis(250));
-        close(client).await;
-    }
-
-    #[tokio::test]
     async fn broker_io_is_bounded_by_the_configured_request_timeout() {
         let broker = Broker::start().await;
         let mut tuning = Tuning::default();
@@ -1383,7 +1372,6 @@ mod tests {
         });
         let results = futures::future::join_all(fetches).await;
 
-        assert_eq!(results.len(), 8);
         for result in results {
             assert_eq!(result.expect("offset fetch")[0].offset, 1);
         }

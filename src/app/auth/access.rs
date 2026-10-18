@@ -622,7 +622,11 @@ mod tests {
             &[("admin", EVERYTHING)],
             vec![binding(&["klens-admins"], "admin", None)],
         );
-        let groups: Vec<String> = (0..MAX_GROUPS + 1).map(|i| format!("g{i}")).collect();
+        let mut groups: Vec<String> = (1..MAX_GROUPS).map(|i| format!("g{i}")).collect();
+        groups.push("klens-admins".to_owned());
+        assert!(policy.admit(&Identity { groups: &groups }).is_some());
+
+        groups.push(format!("g{MAX_GROUPS}"));
         assert_eq!(policy.admit(&Identity { groups: &groups }), None);
     }
 

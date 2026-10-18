@@ -79,7 +79,8 @@ impl InterestRegistry {
         groups.keys().cloned().collect()
     }
 
-    pub fn is_hot(&self, id: &str) -> bool {
+    #[cfg(test)]
+    pub(crate) fn is_hot(&self, id: &str) -> bool {
         let now = Instant::now();
         self.groups
             .lock()

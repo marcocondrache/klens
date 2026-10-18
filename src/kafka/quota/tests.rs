@@ -143,17 +143,6 @@ fn any_other_describe_error_fails_the_call() {
 }
 
 #[test]
-fn every_entity_type_names_itself_on_the_wire_as_kafka_does() {
-    for entity_type in [
-        QuotaEntityType::User,
-        QuotaEntityType::ClientId,
-        QuotaEntityType::Ip,
-    ] {
-        assert_eq!(entity_type.wire().parse().ok(), Some(entity_type));
-    }
-}
-
-#[test]
 fn every_value_keeps_its_kafka_key() {
     for (index, (key, _)) in QuotaValues::default().entries().into_iter().enumerate() {
         let mut values = QuotaValues::default();

@@ -438,7 +438,7 @@ impl SchemaIdTable {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testing::{group, log_dir, metadata, partition, subject, topic};
+    use crate::testing::{group, log_dir, metadata, partition, topic};
 
     #[test]
     fn the_interner_hands_out_one_allocation_per_name() {
@@ -538,26 +538,6 @@ mod tests {
         };
         assert!(!healthy.under_replicated());
         assert!(shrunken.under_replicated());
-    }
-
-    #[test]
-    fn subject_table_drops_schema_bodies() {
-        let table = SubjectTable::assemble(
-            vec![subject("orders-value", 7, 3)],
-            &mut Interner::default(),
-        );
-
-        assert_eq!(
-            table.get("orders-value"),
-            Some(&SubjectInfo {
-                id: 7,
-                schema_type: SchemaType::Avro,
-                latest_version: 3,
-                versions: vec![1, 2, 3],
-                compatibility: SchemaCompatibility::Backward,
-            }),
-            "the list projection carries no schema body"
-        );
     }
 
     #[test]

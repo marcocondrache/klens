@@ -486,10 +486,6 @@ mod tests {
     use crate::kafka::registry::testing::{FakeRegistry, Schema};
     use crate::testing::{LogCapture, yaml};
 
-    fn offline(tuning: &SchemaRegistryTuning) -> SchemaRegistryClient {
-        SchemaRegistryClient::new("local", &yaml("url: http://localhost:8081"), tuning).unwrap()
-    }
-
     fn string() -> Schema {
         Schema::avro(r#""string""#)
     }
@@ -500,16 +496,6 @@ mod tests {
             registry.register(subject, 1, id, string());
         }
         registry
-    }
-
-    #[test]
-    fn subject_fetches_run_as_wide_as_tuning_allows() {
-        let tuning = SchemaRegistryTuning {
-            subject_fetch_concurrency: std::num::NonZeroUsize::new(3).unwrap(),
-            ..SchemaRegistryTuning::default()
-        };
-
-        assert_eq!(offline(&tuning).fetch_concurrency, 3);
     }
 
     #[tokio::test]

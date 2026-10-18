@@ -11,7 +11,8 @@ pub struct MetadataSnapshot {
 }
 
 impl MetadataSnapshot {
-    pub fn topic(&self, name: &str) -> Option<&TopicMetadata> {
+    #[cfg(test)]
+    pub(crate) fn topic(&self, name: &str) -> Option<&TopicMetadata> {
         self.topics.iter().find(|topic| topic.name == name)
     }
 }

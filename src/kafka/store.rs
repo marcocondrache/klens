@@ -17,7 +17,6 @@ pub use bus::{
 pub use cluster::ClusterStore;
 pub use interest::InterestLease;
 pub use lane::{Follower, Lane, LaneHealth, reread_until};
-pub use projections::TopicRow;
 pub use search::{SearchHit, SearchKind};
 pub use tables::{
     ConfigTable, GroupInfo, GroupOffsets, Interner, LogDirTable, OffsetTable, SchemaIdTable,

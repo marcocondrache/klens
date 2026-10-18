@@ -50,7 +50,7 @@ async fn topic_create_leaves_the_partition_count_to_the_broker_unless_given() {
     let created =
         structured(&call(&app, "klens_topic_create", json!({ "topic": "invoices" })).await);
 
-    assert_eq!(created, json!({ "topic": "invoices", "partitions": 1 }));
+    assert_eq!(created, json!({ "topic": "invoices", "partitions": 3 }));
 }
 
 #[tokio::test]

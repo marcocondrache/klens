@@ -31,7 +31,8 @@ impl DecodedPayload {
         }
     }
 
-    pub fn bytes(&self) -> &[u8] {
+    #[cfg(test)]
+    pub(crate) fn bytes(&self) -> &[u8] {
         &self.raw
     }
 
@@ -39,7 +40,8 @@ impl DecodedPayload {
         self.wire_schema_id
     }
 
-    pub fn json(&self) -> Option<&serde_json::Value> {
+    #[cfg(test)]
+    pub(crate) fn json(&self) -> Option<&serde_json::Value> {
         self.json.as_ref()
     }
 
@@ -159,7 +161,7 @@ mod tests {
             DecodedPayload::decoded(framed(7, b"..."), serde_json::json!({"status": "FAILED"}));
 
         assert_eq!(payload.text(), r#"{"status":"FAILED"}"#);
-        assert_eq!(payload.text(), r#"{"status":"FAILED"}"#);
+        assert!(std::ptr::eq(payload.text(), payload.text()));
         assert_eq!(payload.into_text(), r#"{"status":"FAILED"}"#);
     }
 

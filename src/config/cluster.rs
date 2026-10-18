@@ -148,7 +148,7 @@ mod tests {
     }
 
     #[test]
-    fn an_empty_tls_block_verifies_against_the_system_roots() {
+    fn an_empty_tls_block_adds_no_certificates_and_keeps_verification_on() {
         let cluster: Cluster = yaml("{bootstrap_servers: [kafka:9093], tls: {}}");
         let tls = cluster.tls.unwrap();
 

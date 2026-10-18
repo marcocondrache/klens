@@ -144,7 +144,7 @@ clusters:
 # any host but never from a browser. secret puts /mcp behind a gateway that
 # signs people in, such as agentgateway with Entra ID, and /mcp then answers
 # only calls that carry it as Authorization: Bearer, which agentgateway's
-# backendAuth.key adds. With auth, secret is required.
+# backendAuth.key adds.
 #
 # The block is the ceiling every call holds: privileges lists the reads a call
 # may use, out of records, topic_configs, broker_configs, schema_text, and
