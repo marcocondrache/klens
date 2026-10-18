@@ -253,14 +253,14 @@ impl PayloadDecoder {
 #[derive(Clone, Debug, PartialEq, Eq, Error)]
 enum DecodeError {
     #[error("{0}")]
-    Missing(String),
+    Missing(&'static str),
     #[error("{0}")]
     Failed(String),
 }
 
 impl DecodeError {
-    fn missing(message: impl Into<String>) -> Self {
-        Self::Missing(message.into())
+    fn missing(message: &'static str) -> Self {
+        Self::Missing(message)
     }
 
     fn failed(error: impl std::fmt::Display) -> Self {
@@ -271,7 +271,7 @@ impl DecodeError {
         match self {
             Self::Missing(message) => tracing::debug!(
                 schema_id = %key,
-                error = message.as_str(),
+                error = *message,
                 "skipping schema registry payload decode"
             ),
             Self::Failed(message) => tracing::warn!(

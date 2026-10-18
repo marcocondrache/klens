@@ -231,10 +231,24 @@ pub(super) fn search(
 }
 
 pub(super) fn fits(result: &CallToolResult) -> bool {
-    let bytes = serde_json::to_vec(result)
-        .expect("a tool result is serializable")
-        .len();
-    bytes <= RESULT_BYTES
+    serde_json::to_writer(ByteBudget(RESULT_BYTES), result).is_ok()
+}
+
+/// Counts serialized bytes without keeping them, and fails once the budget runs out.
+struct ByteBudget(usize);
+
+impl std::io::Write for ByteBudget {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0 = self
+            .0
+            .checked_sub(bytes.len())
+            .ok_or(std::io::ErrorKind::WriteZero)?;
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
 }
 
 /// The first `most` rows of a list, and how many the rest holds.

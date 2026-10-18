@@ -7,9 +7,12 @@ import { formatBytes, formatRelative, formatTimestamp } from "@/lib/format";
 import type { KafkaRecord } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 
+// The cell truncates long before this, so scanning the whole payload is wasted work.
+const PREVIEW_CHARS = 512;
+
 function preview(value: string | null) {
   if (!value) return "—";
-  return value.replace(/\s+/g, " ").trim();
+  return value.slice(0, PREVIEW_CHARS).replace(/\s+/g, " ").trim();
 }
 
 const columnHelper = createColumnHelper<DataTableFeatures, KafkaRecord>();

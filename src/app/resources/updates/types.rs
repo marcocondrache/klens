@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use axum::response::sse::Event;
 use serde::Serialize;
 use ts_rs::TS;
@@ -9,14 +11,14 @@ use super::super::groups::GroupOffset;
 #[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct TopicRate {
-    pub topic: String,
+    pub topic: Arc<str>,
     pub rate: f64,
 }
 
 impl From<&store::TopicRate> for TopicRate {
     fn from(rate: &store::TopicRate) -> Self {
         Self {
-            topic: String::from(&*rate.topic),
+            topic: Arc::clone(&rate.topic),
             rate: rate.rate,
         }
     }

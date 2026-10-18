@@ -42,41 +42,50 @@ impl DecodedRecord {
 
     pub fn into_record(self, topic: &str) -> Record {
         let schema_id = self.value.as_ref().and_then(DecodedPayload::wire_schema_id);
-        let verbatim = !self.masked
-            && self.raw.headers.iter().all(|(_, value)| {
-                value
-                    .as_deref()
-                    .is_some_and(|value| str::from_utf8(value).is_ok())
+        let size_bytes = self.raw.size_bytes();
+
+        let mut headers_verbatim = true;
+        let headers = self
+            .raw
+            .headers
+            .into_iter()
+            .map(|(key, value)| {
+                let (value, verbatim) = header_text(value.as_deref());
+                headers_verbatim &= verbatim;
+                RecordHeader { key, value }
             })
+            .collect();
+
+        let verbatim = !self.masked
+            && headers_verbatim
             && [&self.key, &self.value]
                 .into_iter()
                 .flatten()
                 .all(DecodedPayload::is_verbatim);
-        let headers = self
-            .raw
-            .headers
-            .iter()
-            .map(|(key, value)| RecordHeader {
-                key: key.clone(),
-                value: value
-                    .as_deref()
-                    .map(|value| String::from_utf8_lossy(value).into_owned())
-                    .unwrap_or_default(),
-            })
-            .collect();
 
         Record {
             topic: topic.to_owned(),
             partition: self.raw.partition,
             offset: self.raw.offset,
             timestamp: self.raw.timestamp.max(0),
-            size_bytes: self.raw.size_bytes(),
+            size_bytes,
             key: self.key.map(DecodedPayload::into_text),
             value: self.value.map(DecodedPayload::into_text),
             schema_id,
             headers,
             verbatim,
         }
+    }
+}
+
+/// A missing or non-UTF-8 header value cannot round-trip through the text form.
+fn header_text(value: Option<&[u8]>) -> (String, bool) {
+    let Some(bytes) = value else {
+        return (String::new(), false);
+    };
+    match str::from_utf8(bytes) {
+        Ok(text) => (text.to_owned(), true),
+        Err(_) => (String::from_utf8_lossy(bytes).into_owned(), false),
     }
 }
 
