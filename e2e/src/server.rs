@@ -54,7 +54,7 @@ impl Klens {
         let state = AppState::new(clusters, AuthState::disabled(), Limits::new(&config.tuning));
         let server = tokio::spawn(klens::serve([Listener {
             router: router(state, &config.allowed_hosts),
-            bind: config.bind,
+            bind: config.bind(),
         }]));
 
         let deadline = Instant::now() + PATIENCE;

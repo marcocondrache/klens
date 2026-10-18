@@ -77,7 +77,7 @@ async fn main() -> anyhow::Result<()> {
 
     let mut listeners = vec![Listener {
         router: router(state.clone(), &config.allowed_hosts),
-        bind: config.bind,
+        bind: config.bind(),
     }];
     if let Some(mcp) = &config.mcp {
         listeners.push(Listener {

@@ -28,7 +28,7 @@ pub use tuning::{
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
-    pub bind: SocketAddr,
+    bind: Option<SocketAddr>,
     /// Hosts klens answers while `auth` is off, by name or IP address and
     /// optionally port. Any other `Host` gets 403 everywhere but `/health`
     /// and `/ready`, so a web page that points its own domain at klens cannot
@@ -48,7 +48,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            bind: SocketAddr::from((Ipv4Addr::UNSPECIFIED, 8080)),
+            bind: None,
             allowed_hosts: AllowedHost::loopback(),
             log_level: LogLevel::default(),
             clusters: IndexMap::new(),
@@ -81,6 +81,20 @@ impl Config {
             .with_context(|| format!("invalid config {}", path.display()))
     }
 
+    /// Without `auth`, the default listens on loopback alone, because
+    /// `allowed_hosts` stops only browsers and any other machine that reaches
+    /// the port can send `Host: localhost`.
+    pub fn bind(&self) -> SocketAddr {
+        self.bind.unwrap_or_else(|| {
+            let ip = if self.auth.is_some() {
+                Ipv4Addr::UNSPECIFIED
+            } else {
+                Ipv4Addr::LOCALHOST
+            };
+            SocketAddr::from((ip, 8080))
+        })
+    }
+
     fn check(&self) -> anyhow::Result<()> {
         let Some(mcp) = &self.mcp else {
             return Ok(());
@@ -93,10 +107,10 @@ impl Config {
         {
             anyhow::bail!("mcp.clusters names '{unknown}', which is not a configured cluster");
         }
-        if mcp.bind == self.bind {
+        if mcp.bind == self.bind() {
             anyhow::bail!(
                 "mcp.bind is {}, the address of bind, so give MCP a port of its own",
-                self.bind
+                mcp.bind
             );
         }
         Ok(())
@@ -163,7 +177,7 @@ mod tests {
     fn every_key_has_a_default() {
         let config: Config = yaml("{}");
 
-        assert_eq!(config.bind, "0.0.0.0:8080".parse().unwrap());
+        assert_eq!(config.bind(), "127.0.0.1:8080".parse().unwrap());
         assert_eq!(
             config
                 .allowed_hosts
@@ -198,7 +212,7 @@ mod tests {
             ",
         );
 
-        assert_eq!(config.bind, "127.0.0.1:3000".parse().unwrap());
+        assert_eq!(config.bind(), "127.0.0.1:3000".parse().unwrap());
         assert_eq!(config.log_level, LogLevel::Debug);
         assert_eq!(
             config.clusters.keys().collect::<Vec<_>>(),
@@ -301,6 +315,13 @@ mod tests {
     const MCP_BIND: &str = "bind: 0.0.0.0:8090";
 
     #[test]
+    fn with_auth_an_unset_bind_listens_on_every_interface() {
+        let config: Config = yaml(AUTH);
+
+        assert_eq!(config.bind(), "0.0.0.0:8080".parse().unwrap());
+    }
+
+    #[test]
     fn mcp_with_auth_loads_without_a_secret() {
         let config = yaml::<Config>(&format!("{AUTH}\n            mcp: {{{MCP_BIND}}}"));
 
@@ -350,10 +371,10 @@ mod tests {
         let config = |bind: &str| yaml::<Config>(&format!("mcp: {{bind: '{bind}'}}"));
 
         assert_eq!(
-            config("0.0.0.0:8080").check().unwrap_err().to_string(),
-            "mcp.bind is 0.0.0.0:8080, the address of bind, so give MCP a port of its own"
+            config("127.0.0.1:8080").check().unwrap_err().to_string(),
+            "mcp.bind is 127.0.0.1:8080, the address of bind, so give MCP a port of its own"
         );
-        assert!(config("0.0.0.0:8090").check().is_ok());
+        assert!(config("127.0.0.1:8090").check().is_ok());
     }
 
     #[test]
