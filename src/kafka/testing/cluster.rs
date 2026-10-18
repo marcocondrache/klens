@@ -33,7 +33,7 @@ use crate::kafka::scan::payload::PayloadCodec;
 use crate::kafka::scram::{
     NewScramCredential, ScramCredential, ScramListing, ScramMechanism, ScramUser,
 };
-use crate::kafka::session::ClusterSession;
+use crate::kafka::session::{ClusterSession, OffsetLookup};
 use crate::kafka::storage::LogDir;
 use crate::kafka::topic_config::{BrokerScope, ConfigEdit, ConfigEntry};
 use crate::testing::yaml;
@@ -604,15 +604,15 @@ impl ClusterSession for FakeCluster {
     async fn low_watermarks(
         &self,
         topics: &HashMap<String, Vec<i32>>,
-    ) -> Result<HashMap<String, HashMap<i32, i64>>, KafkaError> {
+    ) -> Result<OffsetLookup, KafkaError> {
         self.answer(Api::LowWatermarks).await?;
-        Ok(self.ends(topics, |marks| marks.low))
+        Ok(self.ends(topics, |marks| marks.low).into())
     }
 
     async fn high_watermarks(
         &self,
         topics: &HashMap<String, Vec<i32>>,
-    ) -> Result<HashMap<String, HashMap<i32, i64>>, KafkaError> {
+    ) -> Result<OffsetLookup, KafkaError> {
         self.answer(Api::HighWatermarks).await?;
         let mut highs = self.ends(topics, |marks| marks.high);
         if let Some(growth) = &mut self.world().growth {
@@ -623,7 +623,7 @@ impl ClusterSession for FakeCluster {
                 }
             }
         }
-        Ok(highs)
+        Ok(highs.into())
     }
 
     async fn offsets_for_times(
