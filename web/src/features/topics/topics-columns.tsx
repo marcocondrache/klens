@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { AlertTriangleIcon } from "lucide-react";
+import { TriangleAlertIcon } from "lucide-react";
 import { createColumnHelper } from "@tanstack/react-table";
 
 import { type DataTableFeatures } from "@/components/data-table/features";
@@ -36,7 +36,7 @@ export const topicColumns = columnHelper.columns([
           {topic.internal ? <Pill className="shrink-0">internal</Pill> : null}
           {topic.underReplicated ? (
             <Pill tone="warn" className="shrink-0">
-              <AlertTriangleIcon />
+              <TriangleAlertIcon />
               under-replicated
             </Pill>
           ) : null}
