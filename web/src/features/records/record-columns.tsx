@@ -46,7 +46,7 @@ export const recordColumns = columnHelper.columns([
   columnHelper.accessor((record) => record.value ?? "", {
     id: "value",
     header: ({ column }) => <DataTableColumnHeader column={column} title="Value" />,
-    meta: { className: "w-full max-w-0" },
+    meta: { grow: true },
     cell: ({ row }) => (
       <span className="block truncate font-mono text-muted-foreground">
         {preview(row.original.value)}

@@ -9,22 +9,23 @@ const columnHelper = createColumnHelper<DataTableFeatures, GroupRow>();
 export const groupColumns = columnHelper.columns([
   columnHelper.accessor("id", {
     header: "Group",
+    meta: { grow: true },
     cell: ({ getValue }) => <span className="font-mono">{getValue()}</span>,
   }),
   columnHelper.accessor("state", {
     header: "State",
-    meta: { width: "12rem" },
     cell: ({ getValue }) => <GroupStateBadge state={getValue()} />,
   }),
   columnHelper.accessor("memberCount", {
     id: "members",
     header: "Members",
-    meta: { align: "right", width: "6rem" },
+    meta: { align: "right" },
     cell: ({ getValue }) => getValue(),
   }),
   columnHelper.accessor((group) => group.topicNames.length, {
     id: "topics",
     header: "Topics",
+    meta: { grow: true },
     cell: ({ row }) => (
       <span className="flex items-center gap-1.5">
         {row.original.topicNames.slice(0, 1).map((topic) => (
@@ -41,7 +42,7 @@ export const groupColumns = columnHelper.columns([
   columnHelper.accessor((group) => group.totalLag ?? -1, {
     id: "lag",
     header: "Lag",
-    meta: { align: "right", width: "9rem" },
+    meta: { align: "right" },
     cell: ({ row }) => <LagValue lag={row.original.totalLag} complete={row.original.lagComplete} />,
   }),
 ]);

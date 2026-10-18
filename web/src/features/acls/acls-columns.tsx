@@ -12,37 +12,34 @@ const columnHelper = createColumnHelper<DataTableFeatures, Acl>();
 export const aclColumns = columnHelper.columns([
   columnHelper.accessor("resourceType", {
     header: "Resource",
-    meta: { width: "9rem" },
     cell: ({ getValue }) => <Pill>{formatEnumLabel(getValue())}</Pill>,
   }),
   columnHelper.accessor("resourceName", {
     header: "Name",
+    meta: { grow: true },
     cell: ({ getValue }) => <span className="font-mono">{getValue()}</span>,
   }),
   columnHelper.accessor("patternType", {
     header: "Pattern",
-    meta: { width: "6rem" },
     cell: ({ getValue }) => (
       <span className="text-muted-foreground">{formatEnumLabel(getValue())}</span>
     ),
   }),
   columnHelper.accessor("principal", {
     header: "Principal",
+    meta: { grow: true },
     cell: ({ getValue }) => <span className="font-mono">{getValue()}</span>,
   }),
   columnHelper.accessor("host", {
     header: "Host",
-    meta: { width: "8rem" },
     cell: ({ getValue }) => <span className="font-mono text-muted-foreground">{getValue()}</span>,
   }),
   columnHelper.accessor("operation", {
     header: "Operation",
-    meta: { width: "10rem" },
     cell: ({ getValue }) => formatEnumLabel(getValue()),
   }),
   columnHelper.accessor("permission", {
     header: "Permission",
-    meta: { width: "7rem" },
     cell: ({ getValue }) => (
       <StatusLabel tone={getValue() === "DENY" ? "error" : "ok"}>
         {formatEnumLabel(getValue())}
@@ -54,7 +51,7 @@ export const aclColumns = columnHelper.columns([
 export function aclDeleteColumn(onDelete: (acl: Acl) => void) {
   return columnHelper.display({
     id: "delete",
-    meta: { align: "right", width: "3.5rem" },
+    meta: { align: "right" },
     cell: ({ row }) => {
       const acl = row.original;
 

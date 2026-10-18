@@ -10,11 +10,11 @@ const columnHelper = createColumnHelper<DataTableFeatures, GroupMember>();
 export const memberColumns = columnHelper.columns([
   columnHelper.accessor("clientId", {
     header: "Client ID",
+    meta: { grow: true },
     cell: ({ getValue }) => <span className="font-mono">{getValue()}</span>,
   }),
   columnHelper.accessor("id", {
     header: "Member ID",
-    meta: { width: "20rem" },
     cell: ({ row }) => (
       <span className="flex items-center gap-1">
         <span className="max-w-72 truncate font-mono text-muted-foreground">{row.original.id}</span>
@@ -24,11 +24,11 @@ export const memberColumns = columnHelper.columns([
   }),
   columnHelper.accessor("host", {
     header: "Host",
-    meta: { width: "9rem" },
     cell: ({ getValue }) => <span className="font-mono text-muted-foreground">{getValue()}</span>,
   }),
   columnHelper.accessor("assignments", {
     header: "Assignments",
+    meta: { grow: true },
     cell: ({ row }) => (
       <span className="flex flex-wrap gap-1">
         {row.original.assignments.map((assignment) => (
@@ -46,7 +46,7 @@ export const memberColumns = columnHelper.columns([
     {
       id: "partitions",
       header: "Partitions",
-      meta: { align: "right", width: "7rem" },
+      meta: { align: "right" },
       cell: ({ getValue }) => getValue(),
     },
   ),

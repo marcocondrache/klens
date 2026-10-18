@@ -28,6 +28,7 @@ export function offsetColumns({
   return columnHelper.columns([
     columnHelper.accessor("topic", {
       header: "Topic",
+      meta: { grow: true },
       cell: ({ getValue }) => (
         <Link
           to="/cluster/$cluster/topics/$topic"
@@ -41,13 +42,13 @@ export function offsetColumns({
     }),
     columnHelper.accessor("partition", {
       header: "Partition",
-      meta: { align: "right", width: "6rem" },
+      meta: { align: "right" },
       cell: ({ getValue }) => <span className="numeric">{getValue()}</span>,
     }),
     columnHelper.accessor((offset) => offset.currentOffset ?? -1, {
       id: "current",
       header: "Committed",
-      meta: { align: "right", width: "9rem" },
+      meta: { align: "right" },
       cell: ({ row }) => (
         <OffsetValue value={row.original.currentOffset} label="Fetching committed offsets" />
       ),
@@ -55,7 +56,7 @@ export function offsetColumns({
     columnHelper.accessor((offset) => offset.endOffset ?? -1, {
       id: "end",
       header: "End offset",
-      meta: { align: "right", width: "9rem" },
+      meta: { align: "right" },
       cell: ({ row }) => (
         <OffsetValue value={row.original.endOffset} label="Sampling the watermark" />
       ),
@@ -63,7 +64,7 @@ export function offsetColumns({
     columnHelper.accessor((offset) => offset.lag ?? -1, {
       id: "lag",
       header: "Lag",
-      meta: { align: "right", width: "12rem" },
+      meta: { align: "right" },
       cell: ({ getValue, row }) => {
         if (row.original.lag === null) {
           return <PendingValue label="Lag is not known yet" className="ml-auto block" />;
@@ -93,7 +94,7 @@ export function offsetColumns({
     columnHelper.accessor((offset) => offset.memberId ?? "", {
       id: "member",
       header: "Member",
-      meta: { align: "right", width: "14rem" },
+      meta: { align: "right", grow: true },
       cell: ({ row }) =>
         row.original.memberId ? (
           <span className="font-mono text-muted-foreground">

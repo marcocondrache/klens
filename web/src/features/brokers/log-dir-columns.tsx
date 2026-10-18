@@ -23,6 +23,7 @@ function optionalBytes(bytes: number | null) {
 export const logDirColumns = columnHelper.columns([
   columnHelper.accessor("path", {
     header: "Path",
+    meta: { grow: true },
     cell: ({ row }) => {
       const dir = row.original;
 
@@ -47,31 +48,31 @@ export const logDirColumns = columnHelper.columns([
   columnHelper.accessor("replicaCount", {
     id: "partitions",
     header: "Partitions",
-    meta: { align: "right", width: "7rem" },
+    meta: { align: "right" },
     cell: ({ getValue }) => formatNumber(getValue()),
   }),
   columnHelper.accessor("sizeBytes", {
     id: "size",
     header: "Size",
-    meta: { align: "right", width: "7rem" },
+    meta: { align: "right" },
     cell: ({ getValue }) => formatBytes(getValue()),
   }),
   columnHelper.accessor((dir) => dir.usableBytes ?? -1, {
     id: "free",
     header: "Free",
-    meta: { align: "right", width: "7rem" },
+    meta: { align: "right" },
     cell: ({ row }) => optionalBytes(row.original.usableBytes),
   }),
   columnHelper.accessor((dir) => dir.totalBytes ?? -1, {
     id: "capacity",
     header: "Capacity",
-    meta: { align: "right", width: "7rem" },
+    meta: { align: "right" },
     cell: ({ row }) => optionalBytes(row.original.totalBytes),
   }),
   columnHelper.accessor((dir) => usedShare(dir) ?? -1, {
     id: "used",
     header: "Used",
-    meta: { align: "right", width: "6rem" },
+    meta: { align: "right" },
     cell: ({ row }) => <UsedValue used={usedShare(row.original)} />,
   }),
 ]);
