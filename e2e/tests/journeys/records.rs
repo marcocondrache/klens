@@ -137,7 +137,7 @@ async fn deleted_records_leave_the_log_once_the_delete_answers() {
 }
 
 #[tokio::test]
-async fn a_compacted_topic_keeps_its_records() {
+async fn a_compacted_topic_refuses_record_deletion() {
     let kafka = Kafka::start().await;
     kafka
         .create(

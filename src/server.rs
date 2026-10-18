@@ -152,8 +152,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn only_a_server_error_logs_its_completion_at_info() {
-        let logs = LogCapture::at(tracing::Level::INFO);
+    async fn only_a_server_error_logs_its_completion_at_warn() {
+        let logs = LogCapture::at(tracing::Level::WARN);
         let router = Router::new()
             .route("/done", get(|| async { StatusCode::NO_CONTENT }))
             .route(
