@@ -1,31 +1,16 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useTable, type ColumnDef, type RowData } from "@tanstack/react-table";
-import { useVirtualizer } from "@tanstack/react-virtual";
 
-import { columnWidth, minTableWidth } from "@/components/data-table/column-width";
 import { features, type DataTableFeatures } from "@/components/data-table/features";
-import { tablePlaceholder } from "@/components/data-table/placeholder";
-import { CLICKABLE_ROW, clickableRowProps } from "@/components/data-table/row-interaction";
-import { SkeletonBar, skeletonRowStyle } from "@/components/data-table/skeleton-bar";
+import { DataTableMessageRow, DataTableSkeletonRows } from "@/components/data-table/rows";
+import { VirtualTable } from "@/components/data-table/virtual-table";
+import { DataTableViewport } from "@/components/data-table/viewport";
 import { Button } from "@/components/ui/button";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { cn } from "@/lib/utils";
 
 import { RefreshBar } from "./refresh-bar";
 
-const ROW_SIZE = 41;
 const LOADER_ROWS = 3;
-const SKELETON_ROWS = 14;
-const PREFETCH_ROWS = 20;
-
-const CELL = "px-3 first:pl-4 last:pr-4";
+const PREFETCH_DISTANCE = 800;
 
 interface RecordTableProps<TData extends RowData> {
   columns: Array<ColumnDef<DataTableFeatures, TData>>;
@@ -44,6 +29,8 @@ interface RecordTableProps<TData extends RowData> {
   isFetchNextPageError?: boolean;
 }
 
+// Records stream in without bound, so the table always virtualizes rather than
+// switching layout midway through a scroll.
 export function RecordTable<TData extends RowData>({
   columns,
   data,
@@ -71,153 +58,51 @@ export function RecordTable<TData extends RowData>({
   const rows = table.getRowModel().rows;
   const leafColumns = table.getAllLeafColumns();
   const awaitingFirstPage = rows.length === 0 && hasNextPage && error == null;
-  const showLoader = hasNextPage || isFetchingNextPage || isFetchNextPageError;
+  const canFetchMore = hasNextPage && !isFetchingNextPage && !isFetchNextPageError;
 
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const virtualizer = useVirtualizer<HTMLDivElement, HTMLTableRowElement>({
-    count: rows.length,
-    getScrollElement: () => scrollRef.current,
-    estimateSize: () => ROW_SIZE,
-    getItemKey: (index) => rows[index].id,
-    overscan: 6,
-  });
+  const [viewport, setViewport] = useState<HTMLDivElement | null>(null);
 
-  const virtualRows = virtualizer.getVirtualItems();
-  const padTop = virtualRows.length ? virtualRows[0].start : 0;
-  const padBottom = virtualRows.length
-    ? virtualizer.getTotalSize() - virtualRows[virtualRows.length - 1].end
-    : 0;
-  const endIndex = virtualRows.length ? virtualRows[virtualRows.length - 1].index : -1;
-  const nearEnd = hasNextPage && (rows.length === 0 || endIndex >= rows.length - PREFETCH_ROWS);
+  function fetchMoreNearEnd() {
+    if (viewport == null || !canFetchMore) return;
 
-  useEffect(() => {
-    if (fetchNextPage == null || !nearEnd || isFetchingNextPage || isFetchNextPageError) {
-      return;
-    }
-    fetchNextPage();
-  }, [fetchNextPage, isFetchNextPageError, isFetchingNextPage, nearEnd]);
-
-  function skeletonRows(count: number) {
-    return Array.from({ length: count }, (_, index) => (
-      <TableRow
-        key={index}
-        aria-hidden
-        className="border-border/70 hover:bg-transparent"
-        style={skeletonRowStyle(index, count)}
-      >
-        {leafColumns.map((column, columnIndex) => {
-          const meta = column.columnDef.meta;
-
-          return (
-            <TableCell key={column.id} className={cn("h-10 py-2", CELL)}>
-              <SkeletonBar row={index} column={columnIndex} align={meta?.align} />
-            </TableCell>
-          );
-        })}
-      </TableRow>
-    ));
+    const remaining = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
+    if (remaining < PREFETCH_DISTANCE) fetchNextPage?.();
   }
 
+  // A page that lands without filling the viewport gives no scroll to react to.
+  useEffect(fetchMoreNearEnd);
+
   return (
-    <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border">
-      {refreshing ? <RefreshBar className="absolute inset-x-0 top-0 z-20" /> : null}
-      <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto">
-        <Table
-          aria-busy={loading || refreshing || isFetchingNextPage || undefined}
-          className="table-fixed"
-          style={{ minWidth: minTableWidth(leafColumns) }}
-        >
-          <colgroup>
-            {leafColumns.map((column) => (
-              <col key={column.id} style={{ width: columnWidth(column) }} />
-            ))}
-          </colgroup>
-          <TableHeader className="[&_tr]:border-b-0!">
-            {table.getHeaderGroups().map((headerGroup) => (
-              <TableRow key={headerGroup.id}>
-                {headerGroup.headers.map((header) => (
-                  <TableHead
-                    key={header.id}
-                    className={cn(
-                      "sticky top-0 z-10 bg-subtle text-xs text-muted-foreground shadow-[inset_0_-1px_0_0_var(--color-border)]",
-                      CELL,
-                      header.column.columnDef.meta?.align === "right" && "text-right",
-                    )}
-                  >
-                    {header.isPlaceholder ? null : <table.FlexRender header={header} />}
-                  </TableHead>
-                ))}
-              </TableRow>
-            ))}
-          </TableHeader>
-          <TableBody>
-            {loading || awaitingFirstPage ? (
-              skeletonRows(SKELETON_ROWS)
-            ) : rows.length === 0 ? (
-              <TableRow className="hover:bg-transparent">
-                <TableCell colSpan={leafColumns.length} className="p-0">
-                  {tablePlaceholder(error ?? emptyState)}
-                </TableCell>
-              </TableRow>
-            ) : (
-              <>
-                {padTop > 0 ? <tr aria-hidden style={{ height: padTop }} /> : null}
-                {virtualRows.map((item) => {
-                  const row = rows[item.index];
-
-                  return (
-                    <TableRow
-                      key={row.id}
-                      data-index={item.index}
-                      ref={virtualizer.measureElement}
-                      data-state={selectedKey === row.id ? "selected" : undefined}
-                      {...(onRowClick ? clickableRowProps(() => onRowClick(row.original)) : {})}
-                      className={cn(
-                        "group/row border-border/70 transition-[background-color,opacity] duration-75",
-                        onRowClick && CLICKABLE_ROW,
-                        stale && "opacity-50",
-                      )}
-                    >
-                      {row.getAllCells().map((cell) => {
-                        const meta = cell.column.columnDef.meta;
-
-                        return (
-                          <TableCell
-                            key={cell.id}
-                            className={cn(
-                              "overflow-hidden py-2.5 text-ellipsis",
-                              CELL,
-                              meta?.align === "right" && "text-right numeric",
-                              meta?.className,
-                            )}
-                          >
-                            <table.FlexRender cell={cell} />
-                          </TableCell>
-                        );
-                      })}
-                    </TableRow>
-                  );
-                })}
-                {padBottom > 0 ? <tr aria-hidden style={{ height: padBottom }} /> : null}
-                {isFetchNextPageError ? (
-                  <TableRow className="border-border/70 hover:bg-transparent">
-                    <TableCell colSpan={leafColumns.length} className="h-10 p-0">
-                      <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
-                        Couldn't load more records.
-                        <Button variant="outline" size="xs" onClick={() => fetchNextPage?.()}>
-                          Retry
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ) : showLoader ? (
-                  skeletonRows(LOADER_ROWS)
-                ) : null}
-              </>
-            )}
-          </TableBody>
-        </Table>
-      </div>
-    </div>
+    <DataTableViewport
+      ref={setViewport}
+      onScroll={fetchMoreNearEnd}
+      overlay={refreshing ? <RefreshBar className="absolute inset-x-0 top-0 z-20" /> : null}
+      aria-busy={loading || refreshing || isFetchingNextPage || undefined}
+    >
+      <VirtualTable
+        table={table}
+        rows={rows}
+        viewport={viewport}
+        loading={loading || awaitingFirstPage}
+        placeholder={error ?? emptyState}
+        onRowClick={onRowClick}
+        selectedRowId={selectedKey}
+        stale={stale}
+        footer={
+          rows.length === 0 ? null : isFetchNextPageError ? (
+            <DataTableMessageRow columnCount={leafColumns.length}>
+              <div className="flex h-10 items-center justify-center gap-2 text-sm text-muted-foreground">
+                Couldn't load more records.
+                <Button variant="outline" size="xs" onClick={() => fetchNextPage?.()}>
+                  Retry
+                </Button>
+              </div>
+            </DataTableMessageRow>
+          ) : hasNextPage || isFetchingNextPage ? (
+            <DataTableSkeletonRows columns={leafColumns} count={LOADER_ROWS} />
+          ) : null
+        }
+      />
+    </DataTableViewport>
   );
 }
