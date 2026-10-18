@@ -7,11 +7,11 @@ use krafka::admin::{
     ConsumerGroupMember, GroupOffset, LogDirDescription, TopicPartition, TopicPartitionAssignment,
 };
 use krafka::consumer::FetchMetadataResult;
-use krafka::error::KrafkaError;
+use krafka::error::{ErrorCode, KrafkaError};
 use krafka::producer::Record;
 use tracing::warn;
 
-use crate::kafka::error::KafkaError;
+use crate::kafka::error::{KafkaError, Refusal};
 use crate::kafka::group::{
     CommittedOffset, GroupMember, GroupSnapshot, GroupState, MemberAssignment,
 };
@@ -48,9 +48,25 @@ impl MetadataSnapshot {
 
 pub(super) fn refused<T>(result: Result<T, KrafkaError>) -> Result<T, KafkaError> {
     result.map_err(|error| match error {
-        KrafkaError::Broker { message, .. } => KafkaError::Refused(message),
+        KrafkaError::Broker { code, message } => KafkaError::Refused(Refusal {
+            code,
+            reason: Some(message),
+        }),
         error => error.into(),
     })
+}
+
+/// `None` when the broker will not let klens describe the cluster at all.
+pub(super) fn unless_denied<T>(result: Result<T, KrafkaError>) -> Result<Option<T>, KafkaError> {
+    match result {
+        Ok(described) => Ok(Some(described)),
+        Err(KrafkaError::Broker {
+            code: ErrorCode::ClusterAuthorizationFailed,
+            ..
+        }) => Ok(None),
+        Err(KrafkaError::Broker { message, .. }) => Err(KafkaError::Admin(message)),
+        Err(error) => Err(error.into()),
+    }
 }
 
 const HIGH_WATERMARK: i64 = -1;
@@ -66,10 +82,12 @@ impl RecordDeletion {
     }
 }
 
+/// krafka's message for a failed produce names the partition, not Kafka's
+/// reason, so only the code is kept.
 pub(super) fn produce_refusal(error: KrafkaError) -> KafkaError {
     match error {
         KrafkaError::Broker { code, .. } if !code.is_retriable() => {
-            KafkaError::Refused(format!("{code:?}"))
+            KafkaError::Refused(Refusal { code, reason: None })
         }
         error => error.into(),
     }
@@ -306,8 +324,6 @@ mod tests {
     use std::collections::BTreeMap;
     use std::num::{NonZeroU8, NonZeroU16};
 
-    use krafka::error::ErrorCode;
-
     use super::*;
     use crate::kafka::scan::RecordHeader;
 
@@ -410,9 +426,9 @@ mod tests {
     #[test]
     fn a_broker_refusal_names_its_code_but_a_retriable_one_stays_a_client_error() {
         let refused = produce_refusal(KrafkaError::broker(ErrorCode::MessageTooLarge, "batch"));
-        assert!(
-            matches!(&refused, KafkaError::Refused(code) if code == "MessageTooLarge"),
-            "{refused}"
+        assert_eq!(
+            refused.to_string(),
+            "kafka refused the change: MessageTooLarge"
         );
 
         let retriable = produce_refusal(KrafkaError::broker(ErrorCode::NotEnoughReplicas, "batch"));
@@ -459,11 +475,37 @@ mod tests {
         )))
         .unwrap_err();
         assert!(
-            matches!(&invalid, KafkaError::Refused(reason) if reason.starts_with("Invalid value -5")),
+            matches!(
+                &invalid,
+                KafkaError::Refused(Refusal {
+                    code: ErrorCode::InvalidConfig,
+                    reason: Some(reason),
+                }) if reason.starts_with("Invalid value -5")
+            ),
             "{invalid}"
         );
 
         let timeout = refused::<()>(Err(KrafkaError::timeout("CreateTopics"))).unwrap_err();
         assert!(matches!(timeout, KafkaError::Krafka(_)), "{timeout}");
+    }
+
+    #[test]
+    fn a_cluster_authorization_failure_denies_a_describe_but_any_other_code_fails_it() {
+        let denied = unless_denied::<()>(Err(KrafkaError::broker(
+            ErrorCode::ClusterAuthorizationFailed,
+            "Request needs DESCRIBE permission.",
+        )));
+        assert!(matches!(denied, Ok(None)), "{denied:?}");
+
+        let failed = unless_denied::<()>(Err(KrafkaError::broker(
+            ErrorCode::UnknownServerError,
+            "boom",
+        )));
+        assert!(
+            matches!(&failed, Err(KafkaError::Admin(message)) if message == "boom"),
+            "{failed:?}"
+        );
+
+        assert!(matches!(unless_denied(Ok(7)), Ok(Some(7))));
     }
 }

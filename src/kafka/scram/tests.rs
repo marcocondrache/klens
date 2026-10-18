@@ -18,19 +18,16 @@ fn credential(mechanism: ScramMechanism, iterations: i32) -> ScramCredential {
 
 #[test]
 fn users_are_listed_by_name_with_credentials_by_mechanism() {
-    let listing = ScramListing::from_describe(
-        None,
-        vec![
-            described("bob", &[(WireMechanism::Sha512, 4096)]),
-            described(
-                "alice",
-                &[(WireMechanism::Sha512, 8192), (WireMechanism::Sha256, 4096)],
-            ),
-        ],
-    );
+    let listing = ScramListing::from_describe(vec![
+        described("bob", &[(WireMechanism::Sha512, 4096)]),
+        described(
+            "alice",
+            &[(WireMechanism::Sha512, 8192), (WireMechanism::Sha256, 4096)],
+        ),
+    ]);
 
     assert_eq!(
-        listing.expect("listing"),
+        listing,
         ScramListing::Described(vec![
             ScramUser {
                 name: "alice".to_owned(),
@@ -48,41 +45,14 @@ fn users_are_listed_by_name_with_credentials_by_mechanism() {
 }
 
 #[test]
-fn a_cluster_authorization_failure_is_a_denied_listing() {
-    for message in [
-        "Cluster authorization failed.",
-        "ClusterAuthorizationFailed",
-    ] {
-        let listing = ScramListing::from_describe(Some(message), Vec::new());
-
-        assert_eq!(listing.expect("listing"), ScramListing::Denied, "{message}");
-    }
-}
-
-#[test]
-fn any_other_describe_error_fails_the_call() {
-    let error =
-        ScramListing::from_describe(Some("UnknownServerError"), Vec::new()).expect_err("error");
-
-    assert!(
-        matches!(&error, KafkaError::Admin(message) if message == "UnknownServerError"),
-        "{error:?}"
-    );
-}
-
-#[test]
 fn a_listing_finds_the_iterations_of_one_users_credential() {
-    let listing = ScramListing::from_describe(
-        None,
-        vec![
-            described(
-                "alice",
-                &[(WireMechanism::Sha256, 4096), (WireMechanism::Sha512, 8192)],
-            ),
-            described("bob", &[(WireMechanism::Sha512, 4096)]),
-        ],
-    )
-    .expect("listing");
+    let listing = ScramListing::from_describe(vec![
+        described(
+            "alice",
+            &[(WireMechanism::Sha256, 4096), (WireMechanism::Sha512, 8192)],
+        ),
+        described("bob", &[(WireMechanism::Sha512, 4096)]),
+    ]);
 
     assert_eq!(
         listing.iterations("alice", ScramMechanism::Sha512),

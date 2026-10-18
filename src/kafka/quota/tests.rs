@@ -14,7 +14,7 @@ fn described(entity: &[(&str, Option<&str>)], values: &[(&str, f64)]) -> Describ
 }
 
 fn described_quotas(entries: Vec<DescribedQuota>) -> Vec<ClientQuota> {
-    match QuotaListing::from_describe("local", None, entries).expect("listing") {
+    match QuotaListing::from_describe("local", entries) {
         QuotaListing::Described(quotas) => quotas,
         QuotaListing::Denied => panic!("listing was denied"),
     }
@@ -120,29 +120,6 @@ fn an_entry_with_an_unknown_entity_type_is_dropped() {
 }
 
 #[test]
-fn a_cluster_authorization_failure_is_a_denied_listing() {
-    for message in [
-        "Cluster authorization failed.",
-        "ClusterAuthorizationFailed",
-    ] {
-        let listing = QuotaListing::from_describe("local", Some(message), Vec::new());
-
-        assert_eq!(listing.expect("listing"), QuotaListing::Denied, "{message}");
-    }
-}
-
-#[test]
-fn any_other_describe_error_fails_the_call() {
-    let error = QuotaListing::from_describe("local", Some("UnknownServerError"), Vec::new())
-        .expect_err("error");
-
-    assert!(
-        matches!(&error, KafkaError::Admin(message) if message == "UnknownServerError"),
-        "{error:?}"
-    );
-}
-
-#[test]
 fn every_value_keeps_its_kafka_key() {
     for (index, (key, _)) in QuotaValues::default().entries().into_iter().enumerate() {
         let mut values = QuotaValues::default();
@@ -186,7 +163,6 @@ fn a_quota_reads_as_its_entity_and_the_values_it_sets() {
 fn a_listing_finds_the_values_of_exactly_one_entity() {
     let listing = QuotaListing::from_describe(
         "local",
-        None,
         vec![
             described(&[("user", Some("alice"))], &[("producer_byte_rate", 1.0)]),
             described(
@@ -194,8 +170,7 @@ fn a_listing_finds_the_values_of_exactly_one_entity() {
                 &[("producer_byte_rate", 2.0)],
             ),
         ],
-    )
-    .unwrap();
+    );
     let alice = [part(QuotaEntityType::User, Some("alice"))];
 
     assert_eq!(

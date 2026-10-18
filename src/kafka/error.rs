@@ -1,3 +1,6 @@
+use std::fmt::{self, Display, Formatter};
+
+use krafka::error::ErrorCode;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -54,7 +57,7 @@ pub enum KafkaError {
     Admin(String),
 
     #[error("kafka refused the change: {0}")]
-    Refused(String),
+    Refused(Refusal),
 
     #[error("the schema registry refused the change: {0}")]
     RegistryRefused(String),
@@ -123,15 +126,21 @@ impl KafkaError {
     }
 }
 
-/// A broker that denies a describe explains it in prose, such as "Cluster
-/// authorization failed." or "Request ... needs DESCRIBE permission.", or
-/// sends no message and leaves only the error-code name.
-pub(crate) fn is_cluster_authorization_text(message: &str) -> bool {
-    let lower = message.to_ascii_lowercase();
-    lower.contains("clusterauthorizationfailed")
-        || lower.contains("cluster_authorization_failed")
-        || lower.contains("cluster authorization failed")
-        || lower.contains("needs describe permission")
+/// Kafka's code for a change it would not make, and the message that came
+/// with the code when it carries Kafka's reason.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Refusal {
+    pub code: ErrorCode,
+    pub reason: Option<String>,
+}
+
+impl Display for Refusal {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match &self.reason {
+            Some(reason) => f.write_str(reason),
+            None => write!(f, "{:?}", self.code),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]

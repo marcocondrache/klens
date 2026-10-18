@@ -55,7 +55,7 @@ use crate::kafka::session::{ClusterSession, OffsetLookup};
 use crate::kafka::storage::LogDir;
 use crate::kafka::topic_config::{BrokerScope, ConfigEdit, ConfigEntry};
 
-use convert::{committed_from_krafka, produce_refusal, refused};
+use convert::{committed_from_krafka, produce_refusal, refused, unless_denied};
 use groups::{
     ACTIVE_GROUP_STATES, LISTED_GROUP_TYPES, snapshots_from_descriptions, split_empty_groups,
 };
@@ -457,17 +457,19 @@ impl ClusterSession for KafkaClient {
                 DescribeClientQuotasOptions::default(),
             )
             .await;
-        let (error, described) = split_refusal(described)?;
-        QuotaListing::from_describe(
+        let Some(described) = unless_denied(described)? else {
+            return Ok(QuotaListing::Denied);
+        };
+
+        Ok(QuotaListing::from_describe(
             &self.identity.name,
-            error.as_deref(),
             described
                 .into_iter()
                 .map(|(entity, values)| DescribedQuota {
                     entity: entity.0.into_iter().collect(),
                     values: values.into_iter().collect(),
                 }),
-        )
+        ))
     }
 
     async fn scram_users(&self) -> Result<ScramListing, KafkaError> {
@@ -476,7 +478,10 @@ impl ClusterSession for KafkaClient {
             .admin
             .describe_user_scram_credentials(None, DescribeUserScramCredentialsOptions::default())
             .await;
-        let (error, described) = split_refusal(described)?;
+        let Some(described) = unless_denied(described)? else {
+            return Ok(ScramListing::Denied);
+        };
+
         let mut users = Vec::with_capacity(described.len());
         for (name, infos) in described {
             users.push(DescribedUser {
@@ -487,7 +492,7 @@ impl ClusterSession for KafkaClient {
                     .collect(),
             });
         }
-        ScramListing::from_describe(error.as_deref(), users)
+        Ok(ScramListing::from_describe(users))
     }
 
     async fn create_topic(&self, topic: &NewTopic) -> Result<(), KafkaError> {
@@ -749,16 +754,6 @@ impl KafkaClient {
     }
 }
 
-fn split_refusal<T: Default>(
-    result: Result<T, KrafkaError>,
-) -> Result<(Option<String>, T), KafkaError> {
-    match result {
-        Ok(described) => Ok((None, described)),
-        Err(KrafkaError::Broker { message, .. }) => Ok((Some(message), T::default())),
-        Err(error) => Err(error.into()),
-    }
-}
-
 fn owned(values: &[&str]) -> Vec<String> {
     values.iter().map(|&value| value.to_owned()).collect()
 }
@@ -806,6 +801,7 @@ mod tests {
 
     use super::testing::Broker;
     use super::*;
+    use crate::kafka::error::Refusal;
     use crate::kafka::group::MemberAssignment;
     use crate::kafka::metadata::Watermarks;
     use crate::kafka::model::{
@@ -1279,7 +1275,13 @@ mod tests {
             .unwrap_err();
 
         assert!(
-            matches!(&error, KafkaError::Refused(message) if message == "UnknownMemberId"),
+            matches!(
+                &error,
+                KafkaError::Refused(Refusal {
+                    code: ErrorCode::UnknownMemberId,
+                    ..
+                })
+            ),
             "{error}"
         );
     }
@@ -1419,7 +1421,13 @@ mod tests {
 
         let error = client.create_topic(&topic).await.unwrap_err();
         assert!(
-            matches!(&error, KafkaError::Refused(message) if message.contains("already exists")),
+            matches!(
+                &error,
+                KafkaError::Refused(Refusal {
+                    code: ErrorCode::TopicAlreadyExists,
+                    ..
+                })
+            ),
             "{error}"
         );
     }

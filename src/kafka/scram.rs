@@ -8,8 +8,6 @@ use secrecy::{ExposeSecret, SecretString};
 use sha2::{Sha256, Sha512};
 use zeroize::Zeroizing;
 
-use crate::kafka::error::{KafkaError, is_cluster_authorization_text};
-
 /// The iteration counts Kafka accepts for a credential.
 pub const ITERATIONS: RangeInclusive<i32> = 4096..=16384;
 
@@ -83,20 +81,10 @@ impl ScramListing {
             .map(|credential| credential.iterations)
     }
 
-    pub fn from_describe(
-        error: Option<&str>,
-        users: impl IntoIterator<Item = DescribedUser>,
-    ) -> Result<Self, KafkaError> {
-        if let Some(message) = error {
-            if is_cluster_authorization_text(message) {
-                return Ok(Self::Denied);
-            }
-            return Err(KafkaError::Admin(message.to_owned()));
-        }
-
+    pub fn from_describe(users: impl IntoIterator<Item = DescribedUser>) -> Self {
         let mut users: Vec<ScramUser> = users.into_iter().map(ScramUser::from).collect();
         users.sort_by(|left, right| left.name.cmp(&right.name));
-        Ok(Self::Described(users))
+        Self::Described(users)
     }
 }
 
