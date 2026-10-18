@@ -31,7 +31,6 @@ function subscribe(onChange: () => void) {
   };
 }
 
-/** Pauses or resumes the looping animations. The choice outlives the visit. */
 export function setReaderPaused(next: boolean) {
   paused = next;
 

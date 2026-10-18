@@ -76,7 +76,6 @@ pub enum AclPermission {
 pub enum AclListing {
     Enabled(Vec<Acl>),
     Disabled,
-    /// klens's own Kafka user lacks `DESCRIBE` on the cluster.
     Denied,
 }
 
@@ -272,7 +271,6 @@ impl Acl {
         .with_pattern_type(self.pattern_type.to_krafka()?))
     }
 
-    /// Matches this ACL and no other.
     pub(crate) fn to_krafka_filter(&self) -> Result<AclFilter, KafkaError> {
         Ok(
             AclFilter::for_resource(self.resource_type.into(), self.resource_name.as_str())

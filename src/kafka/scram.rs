@@ -61,7 +61,6 @@ pub struct ScramUser {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ScramListing {
     Described(Vec<ScramUser>),
-    /// klens's own Kafka user lacks `DESCRIBE` on the cluster.
     Denied,
 }
 
@@ -121,13 +120,10 @@ impl From<DescribedUser> for ScramUser {
     }
 }
 
-/// A password to store as `user`'s credential for `mechanism`, in place of
-/// any it has.
 #[derive(Debug, Clone)]
 pub struct NewScramCredential {
     pub user: String,
     pub mechanism: ScramMechanism,
-    /// Within [`ITERATIONS`].
     pub iterations: i32,
     pub password: SecretString,
 }

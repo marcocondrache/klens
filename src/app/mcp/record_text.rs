@@ -10,7 +10,6 @@ use crate::app::mcp::reply::search;
 #[cfg(test)]
 mod tests;
 
-/// What a client reads of a record besides its text.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct RecordFacts {
@@ -39,7 +38,6 @@ impl RecordFacts {
     }
 }
 
-/// The text of a record, which a producer chose.
 #[derive(Serialize)]
 struct RecordText<'a> {
     key: Option<&'a str>,
@@ -114,8 +112,6 @@ fn clipped(record: &Record, budget: usize) -> (RecordFacts, RecordText<'_>) {
     };
     let text = RecordText {
         key: record.key.as_deref().map(&mut shown),
-        // Capping headers at the same budget lets a page full of headers fit
-        // once the budget reaches zero.
         headers: record
             .headers
             .iter()

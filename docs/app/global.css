@@ -63,7 +63,6 @@
   }
 }
 
-/* Looping animations pause when their section is off screen or the reader pauses motion. */
 [data-motion='paused'] [class*='motion-safe:animate-'],
 [data-active='false'] [class*='motion-safe:animate-'] {
   animation-play-state: paused;

@@ -27,19 +27,13 @@ pub enum GroupState {
     Empty,
     PreparingRebalance,
     CompletingRebalance,
-    /// A consumer-protocol (KIP-848) group computing a new assignment.
     Assigning,
-    /// A consumer-protocol (KIP-848) group whose members are moving to a new
-    /// assignment.
     Reconciling,
     Dead,
-    /// A state klens does not know. It counts as held by consumers, so
-    /// klens never resets the offsets of a group it cannot read.
     Unknown,
 }
 
 impl GroupState {
-    /// Whether consumers hold the group, so only they may commit its offsets.
     pub fn has_members(self) -> bool {
         !matches!(self, Self::Empty | Self::Dead)
     }

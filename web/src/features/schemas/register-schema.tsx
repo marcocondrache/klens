@@ -30,7 +30,6 @@ const TYPES: { value: SchemaType; label: string }[] = [
   { value: "PROTOBUF", label: "Protobuf" },
 ];
 
-/** A null `subject` asks for one, which registers a new subject. */
 export type SchemaDraft = {
   subject: string | null;
   type: SchemaType;

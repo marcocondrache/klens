@@ -177,7 +177,6 @@ impl FakeCluster {
         self
     }
 
-    /// Adds a broker that starts with broker 1's configs.
     pub fn with_broker(self, id: i32) -> Self {
         {
             let mut world = self.world();
@@ -354,7 +353,6 @@ impl FakeCluster {
         self.world().subjects = subjects;
     }
 
-    /// Holds `subject` with one version per id, in order.
     pub fn put_subject(&self, subject: &str, ids: &[i32]) {
         let mut world = self.world();
         let latest = i32::try_from(ids.len()).expect("a few versions");

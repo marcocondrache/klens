@@ -134,8 +134,6 @@ writes! {
     alter_broker_configs => AlterBrokerConfigsCap,
 }
 
-/// A privilege checked on one cluster. The live calls it guards hang off
-/// it, so none of them can run without the check.
 pub(crate) struct Granted<'a, Cap> {
     _cap: Cap,
     cluster: &'a Cluster,

@@ -109,7 +109,6 @@ function editColumn(onEdit: (entry: ConfigEntry) => void) {
   });
 }
 
-/** With `onEdit`, a click on a writable row opens it for editing. */
 export function ConfigTable({
   entries,
   loading = false,

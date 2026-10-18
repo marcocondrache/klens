@@ -1,4 +1,3 @@
-/// One log directory on one broker, as `DescribeLogDirs` reports it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LogDir {
     pub broker: i32,

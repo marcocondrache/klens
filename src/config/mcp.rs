@@ -82,8 +82,6 @@ fn reads() -> Vec<Privilege> {
     READS.to_vec()
 }
 
-/// A later release may add a tool, a destructive one above all, and an
-/// existing config must not switch it on.
 fn tool_privileges<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<Privilege>, D::Error> {
     let privileges = Vec::<Privilege>::deserialize(deserializer)?;
     if privileges

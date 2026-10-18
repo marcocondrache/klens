@@ -164,7 +164,6 @@ impl FakeRegistry {
         self.contents().ignores_default_to_global = true;
     }
 
-    /// Refuses the next write with an HTTP status and a registry error code.
     pub fn refuse(&self, status: u16, code: u32, message: &str) {
         self.contents().refusal = Some((status, code, message.to_owned()));
     }

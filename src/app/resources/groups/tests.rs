@@ -11,8 +11,6 @@ use crate::testing::{Api, FakeCluster, LogCapture, TestApp, group, offsets, quie
 const ORDERS: &str = "orders.created";
 const BILLING: &str = "/clusters/local/group-offsets/billing";
 
-/// A stopped group that committed partition 0 of the two in `orders.created`,
-/// whose watermarks are 0 and 8.
 async fn billing() -> TestApp {
     let billing = group("billing", ORDERS, vec![0, 1])
         .with_committed(&[(ORDERS, 0, 6)])

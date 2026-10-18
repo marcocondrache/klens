@@ -26,8 +26,6 @@ impl Granted<'_, RecordsCap> {
 }
 
 impl Granted<'_, DeleteRecordsCap> {
-    /// Without `partitions` the deletion covers every partition, and without
-    /// `before` it deletes every record.
     pub(crate) async fn delete_records(
         &self,
         topic: &str,

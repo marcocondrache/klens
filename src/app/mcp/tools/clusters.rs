@@ -66,7 +66,6 @@ struct UnhealthyLane {
 }
 
 impl ClusterRow {
-    /// Counts stay null until the lane that holds them has been read.
     fn new(health: ClusterHealthView, boundary: &Boundary) -> Self {
         let ready = health.topology.updated_at.is_some();
         let measured = |count| ready.then_some(count);
@@ -129,7 +128,6 @@ struct UnhealthyPartition {
 }
 
 impl UnhealthyPartition {
-    /// Every partition of the cluster that is under-replicated or offline, offline first.
     fn all(cluster: &ClusterHandle<'_>) -> Result<Vec<Self>, ApiError> {
         let topology = cluster.topology()?;
         let mut partitions: Vec<Self> = topology
@@ -210,7 +208,6 @@ struct ClusterHit {
     hit: SearchHit,
 }
 
-/// A cluster lane klens has not read, where no match does not mean no name.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct UnreadLane {
@@ -245,7 +242,6 @@ struct SearchResult {
 }
 
 impl SearchResult {
-    /// The matches in each cluster, and the clusters whose names klens has not read.
     fn find(clusters: &[ClusterHandle<'_>], query: &str) -> Self {
         let boundary = Boundary::new();
         let mut hits = Vec::new();

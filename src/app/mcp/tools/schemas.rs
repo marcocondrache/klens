@@ -76,7 +76,6 @@ pub(super) struct SubjectRow {
     versions: Option<SubjectVersions>,
 }
 
-/// The newest versions of a subject, which a DETAILED list adds.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SubjectVersions {

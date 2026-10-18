@@ -47,9 +47,6 @@ impl LaneSource for SchemaIdLane {
     ) -> Result<SchemaIdTable, KafkaError> {
         let held_for = |subject: &str| previous.and_then(|previous| previous.subjects.get(subject));
 
-        // A registry that reuses a version number for another schema was reset
-        // or had the subject deleted and registered again. A subject past the
-        // versions held has its newest held id read again to catch that.
         let checks: Vec<_> = subjects
             .subjects
             .iter()

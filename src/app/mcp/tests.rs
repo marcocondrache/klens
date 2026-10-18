@@ -211,8 +211,6 @@ fn from_gateway(mut request: Request<Body>) -> Request<Body> {
     request
 }
 
-/// Auth on, with no role for anyone, so only the MCP ceiling can grant a call
-/// anything.
 fn auth_granting_nothing() -> AuthState {
     AuthState::enabled_for_tests_with(
         FakeOidc::default(),

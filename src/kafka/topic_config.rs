@@ -1,7 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
-/// Where a config value comes from, the source that wins first.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ConfigSource {
     DynamicTopic,
@@ -20,8 +19,6 @@ pub struct ConfigEntry {
     pub sensitive: bool,
 }
 
-/// Overrides to set, and overrides to drop so the value falls back to the
-/// level below.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ConfigEdit {
     pub set: BTreeMap<String, String>,
@@ -29,9 +26,6 @@ pub struct ConfigEdit {
 }
 
 impl ConfigEdit {
-    /// Whether `entries` read back every change made at `source`. A value
-    /// from a source that wins over it hides the change, which then counts as
-    /// shown.
     pub fn shows_in(&self, entries: &[ConfigEntry], source: ConfigSource) -> bool {
         let entry = |name: &str| entries.iter().find(|entry| entry.name == name);
         self.set.iter().all(|(name, value)| {
@@ -47,16 +41,13 @@ impl ConfigEdit {
     }
 }
 
-/// The brokers a config edit applies to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BrokerScope {
     Broker(i32),
-    /// The default every broker without a value of its own follows.
     Cluster,
 }
 
 impl BrokerScope {
-    /// The source a value set here reads back with.
     pub fn source(self) -> ConfigSource {
         match self {
             Self::Broker(_) => ConfigSource::DynamicBroker,

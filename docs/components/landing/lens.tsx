@@ -2,19 +2,15 @@
 
 import { type ComponentProps, useEffect, useRef } from 'react';
 import { cn } from '@/lib/cn';
+import { DITHER_CELL_PX } from './dither';
 import { useMotionAllowed } from './motion';
 import { useInView } from './use-in-view';
 
 const BAYER_4X4 = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5].map((v) => (v + 0.5) / 16);
 
-const CELL_PX = 3;
 const TURN_MS = 16_000;
 const RESTING_ANGLE = (-3 * Math.PI) / 4;
 
-/**
- * The klens mark, a ring of radius 21 and stroke 14 in a 64 unit box, drawn as a
- * lit torus and dithered with a 4x4 Bayer matrix. The light circles the ring.
- */
 class DitheredRing {
   readonly cols: number;
   readonly rows: number;
@@ -86,7 +82,6 @@ function normalize(x: number, y: number, z: number): [number, number, number] {
   return [x / length, y / length, z / length];
 }
 
-/** Resolves a CSS color, such as a custom property in oklch, to a pixel in ImageData byte order. */
 function resolvePixel(probe: CanvasRenderingContext2D, cssColor: string): number {
   probe.fillStyle = cssColor;
   probe.fillRect(0, 0, 1, 1);
@@ -95,10 +90,6 @@ function resolvePixel(probe: CanvasRenderingContext2D, cssColor: string): number
   return new Uint32Array(Uint8ClampedArray.of(r, g, b, a).buffer)[0];
 }
 
-/**
- * The canvas holds one pixel per dither cell, and CSS scales it up without smoothing. Visibility
- * only starts and stops the loop, so scrolling never rebuilds the ring.
- */
 export function Lens({ className, ...props }: ComponentProps<'canvas'>) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const angleRef = useRef(RESTING_ANGLE);
@@ -125,8 +116,8 @@ export function Lens({ className, ...props }: ComponentProps<'canvas'>) {
     };
 
     const resize = () => {
-      const cols = Math.max(1, Math.floor(canvas.clientWidth / CELL_PX));
-      const rows = Math.max(1, Math.floor(canvas.clientHeight / CELL_PX));
+      const cols = Math.max(1, Math.floor(canvas.clientWidth / DITHER_CELL_PX));
+      const rows = Math.max(1, Math.floor(canvas.clientHeight / DITHER_CELL_PX));
 
       canvas.width = cols;
       canvas.height = rows;

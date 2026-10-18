@@ -16,7 +16,6 @@ function OffsetValue({ value, label }: { value: number | null; label: string }) 
   return <span className="text-muted-foreground">{formatNumber(value)}</span>;
 }
 
-/** `maxLag` scales the lag bars, and `memberLabels` names each member by its client ID. */
 export function offsetColumns({
   cluster,
   maxLag,

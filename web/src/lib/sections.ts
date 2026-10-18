@@ -67,7 +67,6 @@ export function useActiveSection() {
   );
 }
 
-/** Switches to another cluster, staying on the active section. */
 export function useSwitchCluster() {
   const navigate = useNavigate();
   const section = useActiveSection();

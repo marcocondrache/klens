@@ -1,5 +1,3 @@
-//! Arguments several tools take alike.
-
 use std::cmp::Ordering;
 
 use schemars::JsonSchema;
@@ -20,8 +18,6 @@ impl ResponseFormat {
     }
 }
 
-/// Keeps names that contain the text given, ignoring case, and every name when
-/// none is given.
 pub(super) struct NameFilter(Option<String>);
 
 impl NameFilter {
@@ -36,7 +32,6 @@ impl NameFilter {
     }
 }
 
-/// Puts the largest value first and a value klens has not measured last.
 pub(super) fn largest_first<T>(
     a: Option<T>,
     b: Option<T>,
@@ -48,8 +43,6 @@ pub(super) fn largest_first<T>(
     }
 }
 
-/// Declares the arguments of a tool that reads one cluster. Every such tool
-/// takes a `cluster` first, and the schema client sees it with the same text.
 macro_rules! input {
     ($(#[$meta:meta])* struct $name:ident { $($fields:tt)* }) => {
         #[derive(serde::Deserialize, schemars::JsonSchema)]

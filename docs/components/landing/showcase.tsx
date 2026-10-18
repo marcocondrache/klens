@@ -5,7 +5,6 @@ import { cn } from '@/lib/cn';
 
 export type ShowcaseTab = { value: string; label: string; content: ReactNode };
 
-/** Tabs over a few features. Hidden panels stay in the page, so search engines still read them. */
 export function Showcase({ tabs }: { tabs: ShowcaseTab[] }) {
   const id = useId();
   const [active, setActive] = useState(tabs[0]?.value);

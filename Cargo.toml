@@ -4,9 +4,6 @@ version = "0.0.0-dev"
 edition = "2024"
 publish = false
 
-[package.metadata.cargo-machete]
-ignored = ["cookie"]
-
 [features]
 ui = ["dep:memory-serve"]
 typescript = []
@@ -31,10 +28,6 @@ axum = { version = "0.8", default-features = false, features = [
 ] }
 axum-extra = { version = "0.12", default-features = false, features = ["query"] }
 axum-login = "0.18"
-# Pulled in only for `key-expansion`, which is what gives
-# `tower_sessions::cookie::Key::derive_from` (HKDF) so a configured session
-# secret does not have to be a full 64-byte key.
-cookie = { version = "0.18", features = ["key-expansion"] }
 tower-sessions = { version = "0.14", features = ["memory-store", "signed"] }
 futures = "0.3"
 jiff = { version = "0.2", default-features = false, features = ["serde", "std"] }
@@ -78,8 +71,6 @@ bytes = "1"
 hmac = "0.13"
 sha2 = "0.11"
 regex = "1.13"
-# Pinned exactly because rmcp changes fast. src/app/mcp/tools.json shows what
-# each upgrade changes in the tools clients see.
 rmcp = { version = "=3.5.1", default-features = false, features = [
     "server",
     "macros",

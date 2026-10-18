@@ -94,7 +94,6 @@ impl OidcFlow for FakeOidc {
     }
 }
 
-/// The user a test signs in as, in the shape it crosses HTTP.
 #[derive(Serialize, Deserialize)]
 pub(super) struct Impersonated {
     sub: String,

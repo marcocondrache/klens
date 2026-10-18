@@ -115,7 +115,6 @@ pub(super) const GATES: &[ToolGate] = &[
 ];
 
 impl RecordPage {
-    /// The lines that tell a client what the page holds and how to read on.
     fn intro(&self, order: Option<RecordOrder>) -> String {
         let direction = match order {
             Some(RecordOrder::Oldest) => "oldest first",

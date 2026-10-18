@@ -25,7 +25,6 @@ import {
 
 interface FilterBarProps<TData> {
   fields: ReadonlyArray<FilterField<TData>>;
-  /** Rows before these filters apply; used for option counts. */
   rows?: TData[];
   value: FilterRule[];
   onChange: (rules: FilterRule[]) => void;

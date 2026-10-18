@@ -1,5 +1,3 @@
-//! Which privileges let a caller use a tool.
-
 use rmcp::model::ToolAnnotations;
 use serde::Serialize;
 
@@ -10,7 +8,6 @@ use crate::config::Mcp;
 use super::configs::Section;
 use super::tools::gates;
 
-/// The privilege a tool needs, and the privilege each section of its result needs.
 pub(super) struct ToolGate {
     pub(super) name: &'static str,
     pub(super) needs: Option<Privilege>,
@@ -39,7 +36,6 @@ impl ToolGate {
         Self { sections, ..self }
     }
 
-    /// A repeated call of this tool changes Kafka again.
     pub(super) const fn not_idempotent(self) -> Self {
         Self {
             idempotent: false,
@@ -64,19 +60,16 @@ impl ToolGate {
             .open_world(false)
     }
 
-    /// Whether the caller may use the tool on some cluster they see.
     pub(super) fn offered_to(&self, session: &Session) -> bool {
         self.needs.is_none() || session.clusters().any(|cluster| self.usable_on(&cluster))
     }
 
-    /// A tool that changes Kafka also needs a cluster that accepts changes.
     pub(super) fn usable_on(&self, cluster: &ClusterHandle<'_>) -> bool {
         self.needs
             .is_none_or(|privilege| cluster.access.allows(privilege))
             && (!self.changes() || cluster.is_writable())
     }
 
-    /// The tool, then each of its sections, with what each lacks on the cluster.
     pub(super) fn rights(&self, cluster: &ClusterHandle<'_>) -> Vec<ToolRights> {
         let tool = ToolRights {
             available: self.usable_on(cluster),

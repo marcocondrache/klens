@@ -19,7 +19,6 @@ RUN cargo chef prepare --recipe-path recipe.json
 
 FROM chef AS builder
 
-# The recipe masks the crate's own version, so a release bump keeps this layer cached.
 COPY --from=planner /app/recipe.json recipe.json
 RUN cargo chef cook --release --locked --features ui --recipe-path recipe.json
 

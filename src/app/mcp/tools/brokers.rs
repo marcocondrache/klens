@@ -3,7 +3,6 @@ use rmcp::{tool, tool_router};
 use serde::Serialize;
 
 use crate::app::auth::access::Privilege;
-use crate::app::resources::brokers::types::LogDir;
 use crate::app::context::{ClusterHandle, Session};
 use crate::app::error::ApiError;
 use crate::app::mcp::MAX_ROWS;
@@ -13,6 +12,7 @@ use crate::app::mcp::ext::{ClusterExt as _, SessionExt as _};
 use crate::app::mcp::gate::ToolGate;
 use crate::app::mcp::reply::{Page, fit, reply};
 use crate::app::mcp::server::{KlensMcp, ToolResult};
+use crate::app::resources::brokers::types::LogDir;
 use crate::kafka::KafkaError;
 use crate::kafka::store::projections;
 
@@ -46,8 +46,6 @@ struct BrokerRow {
 }
 
 impl BrokerRow {
-    /// Every broker of the cluster by id. The controller and the log dirs stay
-    /// null until klens has read them.
     fn read(cluster: &ClusterHandle<'_>) -> Result<Vec<Self>, ApiError> {
         let topology = cluster.topology()?;
         let log_dirs = cluster.store.log_dirs.load();

@@ -22,7 +22,6 @@ const roles: { group: string; privileges: (string[] | null)[] }[] = [
   { group: 'klens-viewers', privileges: [[], []] },
 ];
 
-/** A matrix of groups by clusters. Narrow cards put each group's name above its clusters. */
 export function AccessMatrix() {
   return (
     <div

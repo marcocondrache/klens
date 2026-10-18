@@ -92,8 +92,6 @@ pub(super) const GATES: &[ToolGate] = &[
         .with_sections(&[(Section::Configs, Privilege::TopicConfigs)]),
 ];
 
-/// Watermarks default to zero, so a partition klens has not read would
-/// otherwise count as empty. Whether every partition of the topic is read.
 fn measured(watermarks: Option<&WatermarkTable>, name: &str, topic: &TopicInfo) -> bool {
     watermarks.is_some_and(|table| {
         topic
@@ -117,7 +115,6 @@ struct TopicRow {
     detail: Option<TopicRowDetail>,
 }
 
-/// What a DETAILED list adds to each topic.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct TopicRowDetail {
@@ -164,8 +161,6 @@ impl TopicSort {
 }
 
 impl TopicsQuery {
-    /// The topics that match, sorted, and how many `empty` could not judge
-    /// because klens has not measured them.
     fn matching(&self, cluster: &ClusterHandle<'_>) -> Result<(Vec<TopicRow>, usize), ApiError> {
         let topology = cluster.topology()?;
         let watermarks = cluster.store.watermarks.load();
@@ -347,7 +342,6 @@ impl<'a> TopicDescription<'a> {
             .collect()
     }
 
-    /// The groups that read the topic, the largest lag on it first.
     fn groups(cluster: &ClusterHandle<'_>, topic: &str) -> Vec<TopicGroupRow> {
         let mut groups = cluster.store.topic_groups(topic);
         groups.sort_by(|a, b| {
@@ -373,7 +367,6 @@ impl<'a> TopicDescription<'a> {
         })
     }
 
-    /// The topic's key and value subjects, or nothing without a schema registry.
     fn subjects(cluster: &ClusterHandle<'_>, topic: &str) -> Option<Vec<SubjectRow>> {
         let table = cluster
             .has_schema_registry()

@@ -150,8 +150,6 @@ impl<'a> ClusterAccess<'a> {
     }
 }
 
-/// Each token proves one privilege was checked; only [`ClusterAccess`] can
-/// make one.
 macro_rules! capability {
     ($(#[$meta:meta])* $token:ident, $method:ident, $privilege:expr) => {
         $(#[$meta])*

@@ -141,9 +141,6 @@ fn past_furthest(walk: RecordOrder, kept: &[(i32, i64)]) -> HashMap<i32, i64> {
     edges
 }
 
-/// Keeps a partition the walk ran out of at the offset where it ran out, so a
-/// walk back from this cursor stops there rather than at a far end that has
-/// moved since.
 fn cursor_from(
     order: RecordOrder,
     walk: RecordOrder,

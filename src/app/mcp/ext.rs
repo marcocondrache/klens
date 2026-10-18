@@ -1,5 +1,3 @@
-//! Reads every tool makes of a session and the cluster it names.
-
 use std::sync::Arc;
 
 use crate::app::context::{ClusterHandle, Session};
@@ -8,7 +6,6 @@ use crate::kafka::KafkaError;
 use crate::kafka::store::{Lane, Topology};
 
 pub(super) trait SessionExt {
-    /// The cluster named, or else the only one the caller sees.
     fn cluster_or_only<'a>(&'a self, name: Option<&'a str>) -> Result<ClusterHandle<'a>, ApiError>;
 }
 
@@ -35,8 +32,6 @@ pub(super) trait ClusterExt {
 
     fn require_schema_registry(&self) -> Result<(), ApiError>;
 
-    /// What a lane last read. A lane before its first read holds nothing, which
-    /// must not read as an empty cluster.
     fn snapshot<T>(&self, lane_name: &'static str, lane: &Lane<T>) -> Result<Arc<T>, ApiError>;
 }
 

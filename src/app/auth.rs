@@ -166,8 +166,6 @@ pub struct SessionGuard {
 enum Holder {
     Nobody,
     Session(String),
-    /// A gateway in front of `/mcp` decides who reaches it, so every call
-    /// holds the same access.
     Fixed(EffectiveAccess),
 }
 

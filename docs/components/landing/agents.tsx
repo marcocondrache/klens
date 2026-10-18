@@ -29,7 +29,6 @@ export function AgentChat() {
   );
 }
 
-/** A sample of the tools an agent receives under the ceiling shown beside it. */
 const tools = [
   { name: 'klens_clusters', description: 'Clusters and their health' },
   { name: 'klens_search', description: 'Topics, groups, brokers, and subjects by name' },
