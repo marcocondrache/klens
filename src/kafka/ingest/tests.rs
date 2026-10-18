@@ -40,6 +40,20 @@ async fn lanes_waiting_for_topology_start_as_soon_as_it_commits() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn an_empty_first_read_commits_and_wakes_the_lanes_that_follow() {
+    let mut rig = Rig::new(FakeCluster::local().without_schema_registry());
+    rig.spawn(rig.subjects());
+    rig.spawn(rig.schema_ids());
+
+    rig.store.schema_ids.committed().await;
+
+    assert!(
+        rig.store.subjects.health().healthy(),
+        "a cluster with no subjects is not an unhealthy one"
+    );
+}
+
+#[tokio::test(start_paused = true)]
 async fn every_lane_runs_per_cluster_and_stops_with_the_ingest() {
     let prod = FakeCluster::named("prod");
     let staging = FakeCluster::named("staging");

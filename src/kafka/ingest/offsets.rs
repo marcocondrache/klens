@@ -100,7 +100,9 @@ impl OffsetLane {
 
         let due = self.due_groups(topology, &hot, refresh, Instant::now());
         let dropped = stale_groups(topology, previous.as_deref());
-        if due.is_empty() && dropped.is_empty() {
+        // A cluster with no groups has nothing due, yet its first sweep still
+        // commits an empty table for lane health to see.
+        if due.is_empty() && dropped.is_empty() && previous.is_some() {
             return Wave::default();
         }
 

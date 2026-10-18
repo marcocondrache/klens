@@ -357,6 +357,30 @@ async fn a_removed_group_is_dropped_from_the_offset_table() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn a_cluster_with_no_groups_commits_one_empty_offset_table() {
+    let rig = Rig::local();
+    rig.cluster.remove_group("order-processor");
+    rig.poll(&mut rig.topology()).await;
+    let mut lane = rig.offsets();
+
+    rig.sweep(&mut lane).await;
+    advance(Duration::from_secs(3_600)).await;
+    rig.sweep(&mut lane).await;
+
+    let table = rig
+        .store
+        .offsets
+        .load()
+        .expect("an empty first sweep commits");
+    assert!(table.groups.is_empty());
+    assert_eq!(
+        rig.store.offsets.version(),
+        1,
+        "a later sweep with nothing due commits nothing"
+    );
+}
+
+#[tokio::test(start_paused = true)]
 async fn the_offset_lane_sweeps_nothing_until_topology_commits() {
     let mut rig = Rig::local();
     rig.spawn_offsets(rig.offsets());
