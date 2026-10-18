@@ -31,7 +31,7 @@ use krafka::error::{KrafkaError, ProtocolErrorKind};
 use krafka::producer::Producer;
 use tokio::sync::OnceCell;
 
-use crate::config::{self, Tuning};
+use crate::config::{self, ScanTuning, Tuning};
 use crate::kafka::acl::{Acl, AclListing};
 use crate::kafka::cluster::ClusterIdentity;
 use crate::kafka::error::KafkaError;
@@ -63,18 +63,42 @@ use offsets::{log_offsets, time_offsets};
 use pool::ScanPool;
 use scan::ReaderConfig;
 use tail::TailLease;
-use transport::Transport;
+use transport::{Connector, Transport};
 
 pub struct KafkaClient {
     identity: ClusterIdentity,
     consume_timeout: Duration,
     scan_poll_wait: Duration,
+    scan_tuning: ScanTuning,
+    scan_reader: ReaderConfig,
     tail_reader: ReaderConfig,
-    transport: Transport,
+    connector: Connector,
+    link: OnceCell<Link>,
     producer: OnceCell<Producer>,
-    scans: Arc<ScanPool>,
     schema_registry: Option<Arc<PayloadDecoder>>,
     obfuscation: Option<Arc<ObfuscationPolicy>>,
+}
+
+/// The clients klens holds once a bootstrap server has answered.
+struct Link {
+    transport: Transport,
+    scans: Arc<ScanPool>,
+}
+
+impl Link {
+    async fn open(
+        connector: &Connector,
+        scan_tuning: &ScanTuning,
+        scan_reader: ReaderConfig,
+    ) -> Result<Self, KafkaError> {
+        let transport = Transport::connect(connector).await?;
+        let scan_client = connector.connect().await?;
+
+        Ok(Self {
+            transport,
+            scans: ScanPool::spawn(scan_client, scan_tuning, scan_reader),
+        })
+    }
 }
 
 impl std::fmt::Debug for KafkaClient {
@@ -86,11 +110,8 @@ impl std::fmt::Debug for KafkaClient {
 }
 
 impl KafkaClient {
-    pub async fn new(
-        name: &str,
-        cluster: &config::Cluster,
-        tuning: &Tuning,
-    ) -> Result<Self, KafkaError> {
+    /// Reaches no broker. The client connects on first use.
+    pub fn new(name: &str, cluster: &config::Cluster, tuning: &Tuning) -> Result<Self, KafkaError> {
         let identity = ClusterIdentity::new(name);
         let schema_registry = cluster
             .schema_registry
@@ -111,24 +132,31 @@ impl KafkaClient {
             .as_ref()
             .map(|rules| Arc::new(ObfuscationPolicy::compile(rules)));
 
-        let transport = Transport::connect(name, cluster, &tuning.kafka).await?;
-        let scan_client = transport.connector.connect().await?;
-
         Ok(Self {
             identity,
             consume_timeout: tuning.kafka.consume_timeout,
             scan_poll_wait: tuning.scan.poll_wait,
+            scan_tuning: tuning.scan,
+            scan_reader: ReaderConfig::new(tuning, tuning.scan.poll_wait),
             tail_reader: ReaderConfig::new(tuning, tuning.tail.poll_wait),
-            scans: ScanPool::spawn(
-                scan_client,
-                &tuning.scan,
-                ReaderConfig::new(tuning, tuning.scan.poll_wait),
-            ),
-            transport,
+            connector: Connector::new(name, cluster, &tuning.kafka),
+            link: OnceCell::new(),
             producer: OnceCell::new(),
             schema_registry,
             obfuscation,
         })
+    }
+
+    /// A failed attempt leaves the cell empty, so the next call tries again
+    /// and a cluster that was down when klens started is read once it answers.
+    async fn link(&self) -> Result<&Link, KafkaError> {
+        self.link
+            .get_or_try_init(|| Link::open(&self.connector, &self.scan_tuning, self.scan_reader))
+            .await
+    }
+
+    async fn transport(&self) -> Result<&Transport, KafkaError> {
+        Ok(&self.link().await?.transport)
     }
 
     async fn list_offsets(
@@ -142,7 +170,8 @@ impl KafkaClient {
         }
 
         let listed = self
-            .transport
+            .transport()
+            .await?
             .admin
             .list_offsets(specs, ListOffsetsOptions::default())
             .await?;
@@ -153,7 +182,8 @@ impl KafkaClient {
     /// sends reports the cluster id.
     async fn cluster_id(&self) -> Result<Option<String>, KafkaError> {
         match self
-            .transport
+            .transport()
+            .await?
             .admin
             .describe_cluster(DescribeClusterOptions::default())
             .await
@@ -183,16 +213,18 @@ impl ClusterSession for KafkaClient {
     }
 
     async fn metadata(&self) -> Result<MetadataSnapshot, KafkaError> {
+        let transport = self.transport().await?;
+
         // Listing the topics refreshes the metadata cache the clients share.
         let refreshed = async {
-            self.transport
+            transport
                 .admin
                 .list_topics(ListTopicsOptions::default().include_internal(true))
                 .await
                 .map_err(KafkaError::from)
         };
         let (_, cluster_id) = tokio::try_join!(refreshed, self.cluster_id())?;
-        let cached = self.transport.metadata.fetch_metadata(None).await?;
+        let cached = transport.metadata.fetch_metadata(None).await?;
         Ok(MetadataSnapshot::from_krafka(cluster_id, cached))
     }
 
@@ -205,7 +237,8 @@ impl ClusterSession for KafkaClient {
             return Err(unknown());
         }
 
-        self.transport
+        self.transport()
+            .await?
             .metadata
             .fetch_metadata(Some(topic))
             .await?
@@ -217,7 +250,7 @@ impl ClusterSession for KafkaClient {
     }
 
     async fn groups(&self) -> Result<Vec<GroupSnapshot>, KafkaError> {
-        let admin = &self.transport.admin;
+        let admin = &self.transport().await?.admin;
         let listing = ListConsumerGroupsOptions::default().types(owned(&LISTED_GROUP_TYPES));
         let active_listing = listing.clone().states(owned(&ACTIVE_GROUP_STATES));
         let (listed, active) = tokio::try_join!(
@@ -252,7 +285,8 @@ impl ClusterSession for KafkaClient {
         }
 
         let listed = self
-            .transport
+            .transport()
+            .await?
             .admin
             .list_consumer_group_offsets(group_id, options)
             .await?;
@@ -290,7 +324,8 @@ impl ClusterSession for KafkaClient {
             )
         });
         let listed = self
-            .transport
+            .transport()
+            .await?
             .admin
             .list_offsets(specs, ListOffsetsOptions::default())
             .await?;
@@ -306,7 +341,8 @@ impl ClusterSession for KafkaClient {
         }
 
         let described = self
-            .transport
+            .transport()
+            .await?
             .admin
             .describe_configs(
                 topics.iter().map(|topic| ConfigResource::topic(*topic)),
@@ -332,7 +368,8 @@ impl ClusterSession for KafkaClient {
 
     async fn broker_configs(&self, broker_id: i32) -> Result<Vec<ConfigEntry>, KafkaError> {
         let described = self
-            .transport
+            .transport()
+            .await?
             .admin
             .describe_configs(
                 [ConfigResource::broker(broker_id)],
@@ -352,10 +389,10 @@ impl ClusterSession for KafkaClient {
     }
 
     async fn log_dirs(&self) -> Result<Vec<LogDir>, KafkaError> {
-        let cached = self.transport.metadata.fetch_metadata(None).await?;
+        let transport = self.transport().await?;
+        let cached = transport.metadata.fetch_metadata(None).await?;
         let brokers = cached.brokers.iter().map(|broker| broker.id());
-        let described = self
-            .transport
+        let described = transport
             .admin
             .describe_log_dirs(brokers, DescribeLogDirsOptions::default())
             .await?;
@@ -376,7 +413,9 @@ impl ClusterSession for KafkaClient {
         topic: &str,
         windows: &[PartitionWindow],
     ) -> Result<Box<dyn ScanConsumer>, KafkaError> {
-        Ok(Box::new(self.scans.acquire(topic, windows).await?))
+        Ok(Box::new(
+            self.link().await?.scans.acquire(topic, windows).await?,
+        ))
     }
 
     async fn open_tail(
@@ -385,7 +424,7 @@ impl ClusterSession for KafkaClient {
         start: &[TailPosition],
     ) -> Result<Box<dyn TailConsumer>, KafkaError> {
         Ok(Box::new(
-            TailLease::open(&self.transport.connector, topic, start, self.tail_reader).await?,
+            TailLease::open(&self.connector, topic, start, self.tail_reader).await?,
         ))
     }
 
@@ -441,7 +480,8 @@ impl ClusterSession for KafkaClient {
     async fn acls(&self) -> Result<AclListing, KafkaError> {
         AclListing::from_admin_result(
             &self.identity.name,
-            self.transport
+            self.transport()
+                .await?
                 .admin
                 .describe_acls(AclFilter::all(), DescribeAclsOptions::default())
                 .await,
@@ -450,7 +490,8 @@ impl ClusterSession for KafkaClient {
 
     async fn client_quotas(&self) -> Result<QuotaListing, KafkaError> {
         let described = self
-            .transport
+            .transport()
+            .await?
             .admin
             .describe_client_quotas(
                 ClientQuotaFilter::all(),
@@ -472,7 +513,8 @@ impl ClusterSession for KafkaClient {
 
     async fn scram_users(&self) -> Result<ScramListing, KafkaError> {
         let described = self
-            .transport
+            .transport()
+            .await?
             .admin
             .describe_user_scram_credentials(None, DescribeUserScramCredentialsOptions::default())
             .await;
@@ -491,7 +533,8 @@ impl ClusterSession for KafkaClient {
     }
 
     async fn create_topic(&self, topic: &NewTopic) -> Result<(), KafkaError> {
-        self.transport
+        self.transport()
+            .await?
             .admin
             .create_topics([topic.to_krafka()?], CreateTopicsOptions::default())
             .await?
@@ -500,7 +543,8 @@ impl ClusterSession for KafkaClient {
     }
 
     async fn delete_topic(&self, topic: &str) -> Result<(), KafkaError> {
-        self.transport
+        self.transport()
+            .await?
             .admin
             .delete_topics([topic], DeleteTopicsOptions::default())
             .await?
@@ -521,7 +565,8 @@ impl ClusterSession for KafkaClient {
     }
 
     async fn add_partitions(&self, topic: &str, total: NonZeroU16) -> Result<(), KafkaError> {
-        self.transport
+        self.transport()
+            .await?
             .admin
             .create_partitions(
                 [(topic, i32::from(total.get()))],
@@ -536,7 +581,8 @@ impl ClusterSession for KafkaClient {
         &self,
         deletion: &RecordDeletion,
     ) -> Result<BTreeMap<i32, i64>, KafkaError> {
-        self.transport
+        self.transport()
+            .await?
             .admin
             .delete_records(deletion.to_krafka(), DeleteRecordsOptions::default())
             .await?
@@ -550,9 +596,10 @@ impl ClusterSession for KafkaClient {
     }
 
     async fn produce(&self, record: &NewRecord) -> Result<ProducedRecord, KafkaError> {
+        let transport = self.transport().await?;
         let producer = self
             .producer
-            .get_or_try_init(|| self.transport.producer())
+            .get_or_try_init(|| transport.producer())
             .await?;
         let sent = producer
             .send(record.to_krafka())
@@ -575,7 +622,8 @@ impl ClusterSession for KafkaClient {
                 offset.offset,
             )
         });
-        self.transport
+        self.transport()
+            .await?
             .admin
             .alter_consumer_group_offsets(
                 group,
@@ -588,7 +636,8 @@ impl ClusterSession for KafkaClient {
     }
 
     async fn delete_group(&self, group: &str) -> Result<(), KafkaError> {
-        self.transport
+        self.transport()
+            .await?
             .admin
             .delete_consumer_groups([group], DeleteConsumerGroupsOptions::default())
             .await?
@@ -605,7 +654,8 @@ impl ClusterSession for KafkaClient {
         let partitions = partitions
             .iter()
             .map(|&partition| TopicPartition::new(topic, partition));
-        self.transport
+        self.transport()
+            .await?
             .admin
             .delete_consumer_group_offsets(
                 group,
@@ -638,7 +688,8 @@ impl ClusterSession for KafkaClient {
             .iter()
             .map(Acl::to_krafka)
             .collect::<Result<Vec<_>, _>>()?;
-        self.transport
+        self.transport()
+            .await?
             .admin
             .create_acls(bindings, CreateAclsOptions::default())
             .await?
@@ -648,7 +699,8 @@ impl ClusterSession for KafkaClient {
 
     async fn delete_acl(&self, acl: &Acl) -> Result<(), KafkaError> {
         let deleted = self
-            .transport
+            .transport()
+            .await?
             .admin
             .delete_acls(vec![acl.to_krafka_filter()?], DeleteAclsOptions::default())
             .await?;
@@ -674,7 +726,8 @@ impl ClusterSession for KafkaClient {
                 .map(|(key, value)| (key.to_owned(), value))
                 .collect(),
         );
-        self.transport
+        self.transport()
+            .await?
             .admin
             .alter_client_quotas(vec![alteration], AlterClientQuotasOptions::default())
             .await?
@@ -690,7 +743,8 @@ impl ClusterSession for KafkaClient {
         let upsertion = tokio::task::spawn_blocking(move || credential.upsertion())
             .await
             .map_err(|error| KafkaError::Admin(error.to_string()))?;
-        self.transport
+        self.transport()
+            .await?
             .admin
             .alter_user_scram_credentials(
                 Vec::new(),
@@ -711,7 +765,8 @@ impl ClusterSession for KafkaClient {
             name: user.to_owned(),
             mechanism: mechanism.wire(),
         };
-        self.transport
+        self.transport()
+            .await?
             .admin
             .alter_user_scram_credentials(
                 vec![deletion],
@@ -737,7 +792,8 @@ impl KafkaClient {
         resource: ConfigResource,
         edit: &ConfigEdit,
     ) -> Result<(), KafkaError> {
-        self.transport
+        self.transport()
+            .await?
             .admin
             .incremental_alter_configs(
                 [(resource, edit.to_krafka())],
@@ -848,7 +904,20 @@ mod tests {
     }
 
     async fn close(client: KafkaClient) {
-        client.transport.admin.close().await.expect("close admin");
+        let transport = client.transport().await.expect("kafka link");
+        transport.admin.close().await.expect("close admin");
+    }
+
+    #[tokio::test]
+    async fn a_cluster_that_was_down_is_read_once_it_answers() {
+        let broker = Broker::start().await;
+        broker.crash(0);
+        let client = KafkaClient::new("test", &broker.config(), &Tuning::default()).unwrap();
+        client.metadata().await.expect_err("no broker answers");
+
+        broker.restart(0);
+
+        client.metadata().await.expect("a later call connects");
     }
 
     #[tokio::test]
@@ -1358,7 +1427,9 @@ mod tests {
         let described = broker
             .client()
             .await
-            .transport
+            .transport()
+            .await
+            .expect("kafka link")
             .admin
             .describe_consumer_groups(["orders-group"], DescribeConsumerGroupsOptions::default())
             .await
