@@ -115,9 +115,9 @@ export function LiveRecords({
           </Alert>
         ) : null
       }
+      status={tail.skipped > 0 ? <SkippedBadge skipped={tail.skipped} /> : null}
       actions={
         <>
-          {tail.skipped > 0 ? <SkippedBadge skipped={tail.skipped} /> : null}
           <IconButton
             label={tail.paused ? "Resume live tail" : "Pause live tail"}
             tooltip={tail.paused ? "Resume" : "Pause"}

@@ -37,6 +37,7 @@ type RecordViewProps = {
   filter: RecordFilter;
   onFilterChange: (filter: RecordFilter) => void;
   filters?: readonly CustomFilter[];
+  status?: ReactNode;
   actions?: ReactNode;
   notice?: ReactNode;
   emptyState: ReactNode;
@@ -49,6 +50,7 @@ export function RecordView({
   filter,
   onFilterChange,
   filters,
+  status,
   actions,
   notice,
   emptyState,
@@ -91,6 +93,7 @@ export function RecordView({
         ) : null}
 
         {obfuscated ? <ObfuscatedBadge /> : null}
+        {status}
 
         <div className="ml-auto flex items-center gap-2">
           <RecordJump topic={topic} onOpen={open} />
