@@ -1,5 +1,5 @@
 use foldhash::{HashMap, HashMapExt};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -19,10 +19,10 @@ pub struct WatermarkLane {
     session: Arc<dyn ClusterSession>,
     high_interval: Duration,
     low_interval: Duration,
-    low_read_at: Mutex<Option<Instant>>,
+    low_read_at: Option<Instant>,
     idle_heartbeat: Duration,
     max_sample_gap: Duration,
-    committed_at: Mutex<Option<Instant>>,
+    committed_at: Option<Instant>,
 }
 
 impl WatermarkLane {
@@ -35,10 +35,10 @@ impl WatermarkLane {
             session,
             high_interval,
             low_interval: tuning.low_watermark,
-            low_read_at: Mutex::new(None),
+            low_read_at: None,
             idle_heartbeat: tuning.idle_heartbeat,
             max_sample_gap: tuning.max_sample_gap,
-            committed_at: Mutex::new(None),
+            committed_at: None,
         }
     }
 
@@ -73,17 +73,17 @@ impl WatermarkLane {
     }
 
     fn low_due(&self, now: Instant) -> bool {
-        (*self.low_read_at.lock().expect("watermark lane clock"))
+        self.low_read_at
             .is_none_or(|at| now.saturating_duration_since(at) >= self.low_interval)
     }
 
     async fn read_low_and_high(
-        &self,
+        &mut self,
         wanted: &HashMap<String, Vec<i32>>,
         now: Instant,
     ) -> Result<HashMap<String, HashMap<i32, Watermarks>>, KafkaError> {
         let fetched = watermarks(self.session.as_ref(), wanted).await?;
-        *self.low_read_at.lock().expect("watermark lane clock") = Some(now);
+        self.low_read_at = Some(now);
         Ok(fetched)
     }
 
@@ -122,12 +122,8 @@ impl WatermarkLane {
     }
 
     fn since_last_commit(&self, now: Instant) -> Option<Duration> {
-        (*self.committed_at.lock().expect("watermark lane clock"))
+        self.committed_at
             .map(|at| now.saturating_duration_since(at))
-    }
-
-    fn mark_committed(&self, now: Instant) {
-        *self.committed_at.lock().expect("watermark lane clock") = Some(now);
     }
 }
 
@@ -150,7 +146,7 @@ impl LaneSource for WatermarkLane {
     }
 
     async fn fetch(
-        &self,
+        &mut self,
         store: &ClusterStore,
         topology: &Topology,
         previous: Option<&Arc<WatermarkTable>>,
@@ -182,7 +178,7 @@ impl LaneSource for WatermarkLane {
     }
 
     fn publish(
-        &self,
+        &mut self,
         store: &ClusterStore,
         previous: Option<&Arc<WatermarkTable>>,
         next: &Arc<WatermarkTable>,
@@ -192,7 +188,7 @@ impl LaneSource for WatermarkLane {
         let elapsed = self
             .since_last_commit(now)
             .filter(|gap| !gap.is_zero() && *gap <= self.max_sample_gap);
-        self.mark_committed(now);
+        self.committed_at = Some(now);
 
         let mut rates = rates_between(previous.map(Arc::as_ref), next, elapsed);
         store.rates.keep_changed(&mut rates);

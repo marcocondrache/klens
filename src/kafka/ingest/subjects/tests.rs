@@ -7,7 +7,7 @@ use crate::testing::{Api, Rig, subject};
 async fn the_subject_lane_stores_the_list_projection_only() {
     let rig = Rig::local();
 
-    rig.poll(&rig.subjects()).await;
+    rig.poll(&mut rig.subjects()).await;
 
     let rows = rig.store.subject_rows();
     assert_eq!(rows.len(), 1);
@@ -22,15 +22,15 @@ async fn the_subject_lane_stores_the_list_projection_only() {
 #[tokio::test]
 async fn a_new_subject_is_published_as_a_delta() {
     let rig = Rig::local();
-    let lane = rig.subjects();
-    rig.poll(&lane).await;
+    let mut lane = rig.subjects();
+    rig.poll(&mut lane).await;
     let mut bus = rig.store.bus.probe();
 
     rig.cluster.set_subjects(vec![
         subject("orders.created-value", 1, 2),
         subject("payments-value", 2, 1),
     ]);
-    rig.poll(&lane).await;
+    rig.poll(&mut lane).await;
 
     assert_eq!(
         bus.next(Change::subjects).added,
@@ -43,8 +43,8 @@ async fn a_registry_outage_degrades_only_the_subject_lane() {
     let rig = Rig::local();
     rig.cluster.fail(Api::SchemaSubjects, "registry down");
 
-    rig.poll(&rig.topology()).await;
-    rig.poll(&rig.subjects()).await;
+    rig.poll(&mut rig.topology()).await;
+    rig.poll(&mut rig.subjects()).await;
 
     let health = rig.store.health();
     assert!(health.topology.healthy());

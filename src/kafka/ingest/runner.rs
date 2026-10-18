@@ -20,7 +20,7 @@ pub trait LaneSource: Send + Sync + 'static {
     fn lane<'a>(&self, store: &'a ClusterStore) -> &'a Lane<Self::Table>;
 
     async fn fetch(
-        &self,
+        &mut self,
         store: &ClusterStore,
         upstream: &Self::Upstream,
         previous: Option<&Arc<Self::Table>>,
@@ -33,7 +33,7 @@ pub trait LaneSource: Send + Sync + 'static {
     fn diff(&self, previous: Option<&Self::Table>, next: &Self::Table) -> Option<Self::Delta>;
 
     fn publish(
-        &self,
+        &mut self,
         store: &ClusterStore,
         previous: Option<&Arc<Self::Table>>,
         next: &Arc<Self::Table>,
@@ -84,11 +84,11 @@ impl<T> Feed<'_, T> {
     }
 }
 
-pub async fn run<S: LaneSource>(store: Arc<ClusterStore>, source: S) {
+pub async fn run<S: LaneSource>(store: Arc<ClusterStore>, mut source: S) {
     let mut upstream = S::Upstream::feed(&store);
     loop {
         let fetched = upstream.table().await;
-        poll(&store, &source, &fetched).await;
+        poll(&store, &mut source, &fetched).await;
         tokio::select! {
             () = source.lane(&store).wait(source.interval()) => {}
             () = async {
@@ -98,7 +98,11 @@ pub async fn run<S: LaneSource>(store: Arc<ClusterStore>, source: S) {
     }
 }
 
-pub(super) async fn poll<S: LaneSource>(store: &ClusterStore, source: &S, upstream: &S::Upstream) {
+pub(super) async fn poll<S: LaneSource>(
+    store: &ClusterStore,
+    source: &mut S,
+    upstream: &S::Upstream,
+) {
     let cluster = store.name();
     let lane = source.name();
     let previous = source.lane(store).load();
@@ -176,7 +180,7 @@ mod tests {
         }
 
         async fn fetch(
-            &self,
+            &mut self,
             _store: &ClusterStore,
             (): &(),
             _previous: Option<&Arc<Topology>>,
@@ -198,7 +202,7 @@ mod tests {
         }
 
         fn publish(
-            &self,
+            &mut self,
             _store: &ClusterStore,
             _previous: Option<&Arc<Topology>>,
             _next: &Arc<Topology>,
@@ -243,7 +247,7 @@ mod tests {
         }
 
         async fn fetch(
-            &self,
+            &mut self,
             _store: &ClusterStore,
             topology: &Topology,
             _previous: Option<&Arc<ConfigTable>>,
@@ -261,7 +265,7 @@ mod tests {
         }
 
         fn publish(
-            &self,
+            &mut self,
             _store: &ClusterStore,
             _previous: Option<&Arc<ConfigTable>>,
             _next: &Arc<ConfigTable>,
@@ -309,10 +313,10 @@ mod tests {
     #[tokio::test]
     async fn a_no_change_poll_commits_nothing_and_publishes_nothing() {
         let rig = Rig::local();
-        let source = Scripted::new(vec![Ok(orders(1))]);
+        let mut source = Scripted::new(vec![Ok(orders(1))]);
 
-        rig.poll(&source).await;
-        rig.poll(&source).await;
+        rig.poll(&mut source).await;
+        rig.poll(&mut source).await;
 
         assert_eq!(
             rig.store.topology.version(),
@@ -326,10 +330,10 @@ mod tests {
     #[tokio::test]
     async fn a_failed_poll_keeps_serving_the_last_table() {
         let rig = Rig::local();
-        let source = Scripted::new(vec![Ok(orders(1)), Err("broker down".into())]);
+        let mut source = Scripted::new(vec![Ok(orders(1)), Err("broker down".into())]);
 
-        rig.poll(&source).await;
-        rig.poll(&source).await;
+        rig.poll(&mut source).await;
+        rig.poll(&mut source).await;
 
         assert_eq!(
             rig.store.topology.load().unwrap().topics.len(),
@@ -346,9 +350,9 @@ mod tests {
     #[tokio::test]
     async fn a_lane_that_never_succeeds_leaves_its_table_empty() {
         let rig = Rig::local();
-        let source = Scripted::new(vec![Err("broker down".into())]);
+        let mut source = Scripted::new(vec![Err("broker down".into())]);
 
-        rig.poll(&source).await;
+        rig.poll(&mut source).await;
 
         assert!(
             rig.store.topology.load().is_none(),
@@ -360,10 +364,10 @@ mod tests {
     #[tokio::test]
     async fn a_change_commits_and_publishes_once() {
         let rig = Rig::local();
-        let source = Scripted::new(vec![Ok(orders(1)), Ok(orders(2))]);
+        let mut source = Scripted::new(vec![Ok(orders(1)), Ok(orders(2))]);
 
-        rig.poll(&source).await;
-        rig.poll(&source).await;
+        rig.poll(&mut source).await;
+        rig.poll(&mut source).await;
 
         assert_eq!(rig.store.topology.version(), 2);
         assert_eq!(source.publishes(), 2);

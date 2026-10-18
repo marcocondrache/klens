@@ -85,7 +85,7 @@ impl Rig {
         OffsetLane::new(self.port())
     }
 
-    pub async fn poll<S: LaneSource>(&self, lane: &S) {
+    pub async fn poll<S: LaneSource>(&self, lane: &mut S) {
         let Some(upstream) = S::Upstream::feed(&self.store).table().now_or_never() else {
             panic!(
                 "the {} lane polled before its upstream committed",
@@ -96,25 +96,25 @@ impl Rig {
     }
 
     pub async fn poll_catalog(&self) {
-        self.poll(&self.topology()).await;
-        self.poll(&self.watermarks()).await;
+        self.poll(&mut self.topology()).await;
+        self.poll(&mut self.watermarks()).await;
     }
 
     pub async fn ingest(&self) {
         self.poll_catalog().await;
-        self.poll(&self.configs()).await;
-        self.poll(&self.log_dirs()).await;
-        self.poll(&self.subjects()).await;
+        self.poll(&mut self.configs()).await;
+        self.poll(&mut self.log_dirs()).await;
+        self.poll(&mut self.subjects()).await;
         if self.store.subjects.load().is_some() {
-            self.poll(&self.schema_ids()).await;
+            self.poll(&mut self.schema_ids()).await;
         }
-        self.poll(&self.acls()).await;
-        self.poll(&self.quotas()).await;
-        self.poll(&self.scram_users()).await;
-        self.sweep(&self.offsets()).await;
+        self.poll(&mut self.acls()).await;
+        self.poll(&mut self.quotas()).await;
+        self.poll(&mut self.scram_users()).await;
+        self.sweep(&mut self.offsets()).await;
     }
 
-    pub async fn sweep(&self, lane: &OffsetLane) -> Wave {
+    pub async fn sweep(&self, lane: &mut OffsetLane) -> Wave {
         let topology = self
             .store
             .topology

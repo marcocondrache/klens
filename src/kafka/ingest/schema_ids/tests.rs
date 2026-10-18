@@ -30,8 +30,8 @@ fn bare() -> Rig {
 }
 
 async fn poll(rig: &Rig) {
-    rig.poll(&rig.subjects()).await;
-    rig.poll(&rig.schema_ids()).await;
+    rig.poll(&mut rig.subjects()).await;
+    rig.poll(&mut rig.schema_ids()).await;
 }
 
 #[tokio::test]
@@ -118,10 +118,10 @@ async fn a_version_the_registry_does_not_answer_for_is_asked_again_next_poll() {
 async fn learned_ids_are_published_as_a_subject_change() {
     let rig = bare();
     rig.cluster.put_subject("orders-value", &[5, 6]);
-    rig.poll(&rig.subjects()).await;
+    rig.poll(&mut rig.subjects()).await;
     let mut bus = rig.store.bus.probe();
 
-    rig.poll(&rig.schema_ids()).await;
+    rig.poll(&mut rig.schema_ids()).await;
 
     assert_eq!(
         bus.next(Change::subjects).added,
@@ -149,13 +149,13 @@ async fn a_failed_read_keeps_the_ids_already_held() {
 #[tokio::test(start_paused = true)]
 async fn a_subjects_commit_wakes_the_lane() {
     let mut rig = Rig::local();
-    let subjects = rig.subjects();
-    rig.poll(&subjects).await;
+    let mut subjects = rig.subjects();
+    rig.poll(&mut subjects).await;
     rig.spawn(rig.schema_ids());
     rig.store.schema_ids.committed().await;
 
     rig.cluster.put_subject("orders-value", &[5, 6]);
-    rig.poll(&subjects).await;
+    rig.poll(&mut subjects).await;
 
     until("the new subject's ids", || {
         rig.store
@@ -169,7 +169,7 @@ async fn a_subjects_commit_wakes_the_lane() {
 #[tokio::test(start_paused = true)]
 async fn the_lane_waits_out_its_interval_between_polls() {
     let mut rig = Rig::local();
-    rig.poll(&rig.subjects()).await;
+    rig.poll(&mut rig.subjects()).await;
     rig.spawn(SchemaIdLane::with_interval(
         rig.port(),
         Duration::from_secs(60),

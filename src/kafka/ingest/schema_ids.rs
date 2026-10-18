@@ -40,7 +40,7 @@ impl LaneSource for SchemaIdLane {
     }
 
     async fn fetch(
-        &self,
+        &mut self,
         store: &ClusterStore,
         subjects: &SubjectTable,
         previous: Option<&Arc<SchemaIdTable>>,
@@ -131,7 +131,7 @@ impl LaneSource for SchemaIdLane {
     }
 
     fn publish(
-        &self,
+        &mut self,
         store: &ClusterStore,
         _previous: Option<&Arc<SchemaIdTable>>,
         _next: &Arc<SchemaIdTable>,

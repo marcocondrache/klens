@@ -11,22 +11,22 @@ use crate::testing::{Api, LogCapture, Rig, quiesce, until};
 #[tokio::test]
 async fn the_scram_user_lane_commits_and_publishes_only_a_changed_listing() {
     let rig = Rig::local();
-    let lane = rig.scram_users();
+    let mut lane = rig.scram_users();
     let mut bus = rig.store.bus.probe();
 
-    rig.poll(&lane).await;
+    rig.poll(&mut lane).await;
     assert!(matches!(
         rig.store.scram_users.load().as_deref(),
         Some(ScramListing::Described(users)) if users.len() == 2
     ));
     bus.next(Change::scram_users);
 
-    rig.poll(&lane).await;
+    rig.poll(&mut lane).await;
     assert_eq!(rig.store.scram_users.version(), 1);
     bus.assert_quiet();
 
     rig.cluster.set_scram_users(ScramListing::Denied);
-    rig.poll(&lane).await;
+    rig.poll(&mut lane).await;
     assert_eq!(
         rig.store.scram_users.load().as_deref(),
         Some(&ScramListing::Denied)
@@ -44,7 +44,7 @@ async fn a_failed_scram_user_poll_names_its_lane_and_commits_nothing() {
         "DescribeUserScramCredentials is not supported",
     );
 
-    rig.poll(&rig.scram_users()).await;
+    rig.poll(&mut rig.scram_users()).await;
 
     assert!(rig.store.scram_users.load().is_none());
     assert_eq!(

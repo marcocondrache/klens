@@ -196,7 +196,7 @@ async fn a_created_topic_shows_before_the_create_answers() {
 
     let topic = app.get("/clusters/local/topics/invoices").await.ok();
     assert_eq!(topic["partitions"].as_array().map(Vec::len), Some(3));
-    rig.poll(&rig.configs()).await;
+    rig.poll(&mut rig.configs()).await;
     let configs = app
         .get("/clusters/local/topics/invoices/configs")
         .await

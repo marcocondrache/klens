@@ -165,11 +165,11 @@ async fn a_listing_change_tells_the_client_to_refetch() {
     let mut live = app.open(UPDATES).await;
     let rig = app.rig();
     app.cluster().set_acls(AclListing::Enabled(Vec::new()));
-    rig.poll(&rig.acls()).await;
+    rig.poll(&mut rig.acls()).await;
     app.cluster().set_quotas(QuotaListing::Denied);
-    rig.poll(&rig.quotas()).await;
+    rig.poll(&mut rig.quotas()).await;
     app.cluster().set_scram_users(ScramListing::Denied);
-    rig.poll(&rig.scram_users()).await;
+    rig.poll(&mut rig.scram_users()).await;
 
     let events: Vec<(String, Value)> = live
         .take(3)
@@ -231,9 +231,9 @@ async fn a_topology_change_reaches_a_scoped_subscriber_only_when_it_names_its_to
     let mut live = app.open(&format!("{UPDATES}?topic=orders.created")).await;
     let rig = app.rig();
     app.cluster().add_topic("unrelated", 1, 0);
-    rig.poll(&rig.topology()).await;
+    rig.poll(&mut rig.topology()).await;
     app.cluster().add_partition("orders.created", 2);
-    rig.poll(&rig.topology()).await;
+    rig.poll(&mut rig.topology()).await;
 
     let event = live.next().await;
 

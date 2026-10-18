@@ -33,7 +33,7 @@ async fn lanes_waiting_for_topology_start_as_soon_as_it_commits() {
     rig.spawn(rig.log_dirs());
     advance(IDLE).await;
 
-    rig.poll(&rig.topology()).await;
+    rig.poll(&mut rig.topology()).await;
 
     rig.store.configs.committed().await;
     rig.store.log_dirs.committed().await;

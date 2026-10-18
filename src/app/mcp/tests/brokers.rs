@@ -41,7 +41,7 @@ async fn brokers_list_leaves_unread_log_dirs_null_and_stops_at_the_limit() {
     cluster.add_broker(3);
     let app = TestApp::of([cluster]).build();
     let rig = app.rig();
-    rig.poll(&rig.topology()).await;
+    rig.poll(&mut rig.topology()).await;
 
     let listed = structured(&call(&app, "klens_brokers_list", json!({ "limit": 2 })).await);
 

@@ -95,7 +95,7 @@ async fn a_cluster_klens_has_not_read_is_not_ready() {
 
     cluster.fail(Api::Metadata, "brokers unreachable");
     let rig = app.rig();
-    rig.poll(&rig.topology()).await;
+    rig.poll(&mut rig.topology()).await;
 
     let failed = call(&app, "klens_clusters", json!({ "cluster": "local" })).await;
     let listed = structured(&call(&app, "klens_clusters", json!({})).await);
@@ -123,7 +123,7 @@ async fn clusters_keeps_a_lane_error_inside_the_boundary() {
     let app = TestApp::over(cluster.clone()).await;
     cluster.fail(Api::TopicConfigs, FORGED_ERROR);
     let rig = app.rig();
-    rig.poll(&rig.configs()).await;
+    rig.poll(&mut rig.configs()).await;
 
     let listed = structured(&call(&app, "klens_clusters", json!({})).await);
     let detail = structured(&call(&app, "klens_clusters", json!({ "cluster": "local" })).await);
@@ -188,9 +188,9 @@ async fn search_keeps_a_lane_error_inside_the_boundary() {
     let cluster = FakeCluster::local();
     let app = TestApp::of([cluster.clone()]).build();
     let rig = app.rig();
-    rig.poll(&rig.topology()).await;
+    rig.poll(&mut rig.topology()).await;
     cluster.fail(Api::SchemaSubjects, FORGED_ERROR);
-    rig.poll(&rig.subjects()).await;
+    rig.poll(&mut rig.subjects()).await;
 
     let found = structured(&call(&app, "klens_search", json!({ "query": "order" })).await);
 
@@ -206,7 +206,7 @@ async fn search_keeps_a_lane_error_inside_the_boundary() {
 async fn search_names_schema_subjects_it_has_not_read() {
     let app = TestApp::of([FakeCluster::local()]).build();
     let rig = app.rig();
-    rig.poll(&rig.topology()).await;
+    rig.poll(&mut rig.topology()).await;
 
     let everywhere = structured(&call(&app, "klens_search", json!({ "query": "orders" })).await);
     let named = structured(
@@ -218,7 +218,7 @@ async fn search_names_schema_subjects_it_has_not_read() {
         .await,
     );
     let listed = structured(&call(&app, "klens_clusters", json!({})).await);
-    rig.poll(&rig.subjects()).await;
+    rig.poll(&mut rig.subjects()).await;
     let read = structured(&call(&app, "klens_search", json!({ "query": "orders" })).await);
 
     let kinds = |found: &Value| -> Vec<Value> {

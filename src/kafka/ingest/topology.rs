@@ -39,7 +39,7 @@ impl LaneSource for TopologyLane {
     }
 
     async fn fetch(
-        &self,
+        &mut self,
         _store: &ClusterStore,
         (): &(),
         previous: Option<&Arc<Topology>>,
@@ -60,7 +60,7 @@ impl LaneSource for TopologyLane {
     }
 
     fn publish(
-        &self,
+        &mut self,
         store: &ClusterStore,
         _previous: Option<&Arc<Topology>>,
         next: &Arc<Topology>,

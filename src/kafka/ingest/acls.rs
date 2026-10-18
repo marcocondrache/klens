@@ -40,7 +40,7 @@ impl LaneSource for AclLane {
     }
 
     async fn fetch(
-        &self,
+        &mut self,
         _store: &ClusterStore,
         (): &(),
         _previous: Option<&Arc<AclListing>>,
@@ -53,7 +53,7 @@ impl LaneSource for AclLane {
     }
 
     fn publish(
-        &self,
+        &mut self,
         store: &ClusterStore,
         _previous: Option<&Arc<AclListing>>,
         _next: &Arc<AclListing>,

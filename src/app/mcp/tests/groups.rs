@@ -104,7 +104,7 @@ async fn groups_list_puts_lag_klens_has_not_read_last() {
     let app = TestApp::over(cluster.clone()).await;
     cluster.put_group(group("fresh", "orders.created", vec![0]));
     let rig = app.rig();
-    rig.poll(&rig.topology()).await;
+    rig.poll(&mut rig.topology()).await;
 
     let listed = structured(&call(&app, "klens_groups_list", json!({ "minLag": 0 })).await);
     let all = structured(&call(&app, "klens_groups_list", json!({ "limit": 5 })).await);
@@ -199,7 +199,7 @@ async fn group_describe_leaves_lag_klens_has_not_read_null() {
     let app = TestApp::over(cluster.clone()).await;
     cluster.put_group(pair("fresh", "orders.created").stopped());
     let rig = app.rig();
-    rig.poll(&rig.topology()).await;
+    rig.poll(&mut rig.topology()).await;
 
     let described =
         structured(&call(&app, "klens_group_describe", json!({ "group": "fresh" })).await);
@@ -216,7 +216,7 @@ async fn a_member_lag_is_null_until_klens_reads_the_offsets() {
     let app = TestApp::over(cluster.clone()).await;
     cluster.put_group(pair("fresh", "orders.created"));
     let rig = app.rig();
-    rig.poll(&rig.topology()).await;
+    rig.poll(&mut rig.topology()).await;
 
     let described =
         structured(&call(&app, "klens_group_describe", json!({ "group": "fresh" })).await);
@@ -237,8 +237,8 @@ async fn a_member_lag_is_null_while_one_of_its_partitions_has_no_end_offset() {
     cluster.add_topic("payments", 1, 4);
     cluster.put_group(billing);
     let rig = app.rig();
-    rig.poll(&rig.topology()).await;
-    rig.sweep(&rig.offsets()).await;
+    rig.poll(&mut rig.topology()).await;
+    rig.sweep(&mut rig.offsets()).await;
 
     let described =
         structured(&call(&app, "klens_group_describe", json!({ "group": "billing" })).await);
