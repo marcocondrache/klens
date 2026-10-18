@@ -9,7 +9,7 @@ use crate::config::ScanTuning;
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::PartitionWindow;
 
-use super::scan::{ReaderConfig, ScanLease, reader};
+use super::scan::{ReaderConfig, ScanLease, reader, retire};
 
 pub(super) struct ScanPool {
     kafka: Kafka,
@@ -88,12 +88,6 @@ impl ScanPoolInner {
             evicted.push(expired.consumer);
         }
     }
-}
-
-pub(super) fn retire(consumer: Arc<Consumer>) {
-    tokio::spawn(async move {
-        let _ = consumer.close().await;
-    });
 }
 
 impl ScanPool {

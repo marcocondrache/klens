@@ -16,6 +16,7 @@ use crate::kafka::model::{PartitionWindow, RawRecord, ScanConsumer};
 use super::pool::{ScanPool, assign};
 
 const MIN_FETCH_WAIT: Duration = Duration::from_millis(1);
+const RETIRE_GRACE: Duration = Duration::from_secs(1);
 
 #[derive(Debug, Clone, Copy)]
 pub(super) struct ReaderConfig {
@@ -57,6 +58,14 @@ pub(super) fn reader(
                 .into_iter()
                 .map(|(partition, offset)| (TopicPartition::new(topic, partition), offset)),
         )
+}
+
+/// A broker that stops answering would hold a close open for good, so the
+/// close gets a grace period.
+pub(super) fn retire(consumer: Arc<Consumer>) {
+    tokio::spawn(async move {
+        let _ = tokio::time::timeout(RETIRE_GRACE, consumer.close()).await;
+    });
 }
 
 pub(super) fn raw_record(message: ConsumerRecord) -> RawRecord {
