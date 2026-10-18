@@ -3,6 +3,7 @@ bun = "latest"
 node = "latest"
 rpk = "26.2.2"
 rust = "latest"
+taplo = "latest"
 viteplus = "latest"
 
 "cargo:cargo-audit" = "latest"
@@ -17,6 +18,10 @@ run = "helm lint charts/klens"
 [tasks."helm:test"]
 description = "Run helm-unittest template tests (needs the helm-unittest plugin)"
 run = "helm unittest charts/klens"
+
+[tasks."toml:fmt"]
+description = "Format the Cargo manifests with taplo"
+run = "taplo fmt"
 
 [tasks.types]
 description = "Regenerate web/src/api/types.gen.ts from the API types"

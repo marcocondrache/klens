@@ -4,21 +4,20 @@ version = "0.0.0-dev"
 edition = "2024"
 publish = false
 
-[features]
-ui = ["dep:memory-serve"]
-typescript = []
-
 [workspace]
 members = ["e2e", "xtask"]
 default-members = ["."]
 
+[features]
+typescript = []
+ui = ["dep:memory-serve"]
+
 [dependencies]
+aho-corasick = "1.1"
 anyhow = "1"
-enumset = "1.1"
+apache-avro = "0.22"
+arc-swap = "1.9.2"
 async-trait = "0.1"
-indexmap = { version = "2", features = ["serde"] }
-itertools = "0.15"
-strum = { version = "0.28", features = ["derive"] }
 axum = { version = "0.8", default-features = false, features = [
     "http1",
     "json",
@@ -28,28 +27,42 @@ axum = { version = "0.8", default-features = false, features = [
 ] }
 axum-extra = { version = "0.12", default-features = false, features = ["query"] }
 axum-login = "0.18"
-tower-sessions = { version = "0.14", features = ["memory-store", "signed"] }
+base64 = "0.23"
+bytes = "1"
+config = { version = "0.15", default-features = false, features = ["preserve_order", "yaml"] }
+enumset = "1.1"
+foldhash = "0.2.0"
+frizbee = "0.13"
 futures = "0.3"
+governor = { version = "0.10", default-features = false, features = ["std"] }
+hmac = "0.13"
+indexmap = { version = "2", features = ["serde"] }
+itertools = "0.15"
 jiff = { version = "0.2", default-features = false, features = ["serde", "std"] }
 krafka = "0.27.1"
-moka = { version = "0.12", features = ["future", "sync"] }
 memory-serve = { version = "2.4", optional = true }
+moka = { version = "0.12", features = ["future", "sync"] }
 openidconnect = "4.0.1"
 pbkdf2 = { version = "0.13", default-features = false, features = ["hmac"] }
+prost-reflect = { version = "0.16", features = ["serde"] }
+protox = "0.10"
 rand = "0.10"
+regex = "1.13"
+rmcp = { version = "=3.5.1", default-features = false, features = [
+    "macros",
+    "server",
+    "transport-streamable-http-server",
+] }
+schemars = { version = "1.2", features = ["jiff02"] }
+schemreg = { version = "0.6", features = ["avro", "confluent"] }
 secrecy = { version = "0.10", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.11"
+strum = { version = "0.28", features = ["derive"] }
 thiserror = "2"
-tokio = { version = "1", features = [
-    "macros",
-    "net",
-    "rt-multi-thread",
-    "signal",
-    "sync",
-    "time",
-] }
-tower = { version = "0.5.3" }
+tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
+tower = "0.5.3"
 tower-http = { version = "0.7", features = [
     "catch-panic",
     "compression-br",
@@ -58,33 +71,13 @@ tower-http = { version = "0.7", features = [
     "sensitive-headers",
     "trace",
 ] }
+tower-sessions = { version = "0.14", features = ["memory-store", "signed"] }
 tracing = "0.1"
 tracing-appender = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-url = { version = "2.5.8", features = ["serde"] }
-base64 = "0.23"
-schemreg = { version = "0.6", features = ["confluent", "avro"] }
-apache-avro = "0.22"
-prost-reflect = { version = "0.16", features = ["serde"] }
-protox = "0.10"
-bytes = "1"
-hmac = "0.13"
-sha2 = "0.11"
-regex = "1.13"
-rmcp = { version = "=3.5.1", default-features = false, features = [
-    "server",
-    "macros",
-    "transport-streamable-http-server",
-] }
-schemars = { version = "1.2", features = ["jiff02"] }
-aho-corasick = "1.1"
-arc-swap = "1.9.2"
-foldhash = "0.2.0"
 ts-rs = { version = "12.0.1", features = ["jiff-impl", "serde-compat"] }
-frizbee = "0.13"
+url = { version = "2.5.8", features = ["serde"] }
 zeroize = "1"
-governor = { version = "0.10", default-features = false, features = ["std"] }
-config = { version = "0.15", default-features = false, features = ["yaml", "preserve_order"] }
 
 [build-dependencies]
 memory-serve = { version = "2.4", optional = true }
@@ -101,7 +94,7 @@ wiremock = "0.6.5"
 opt-level = 3
 strip = true
 lto = "thin"
-panic = 'abort'
+panic = "abort"
 codegen-units = 1
 
 [profile.profiling]
