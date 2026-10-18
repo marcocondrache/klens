@@ -86,6 +86,21 @@ pub struct SchemaSubject {
     pub compatibility: SchemaCompatibility,
 }
 
+/// The schema registered at a subject's latest version.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LatestSchema {
+    pub version: i32,
+    pub id: i32,
+    pub schema_type: SchemaType,
+}
+
+/// The latest schema an earlier sweep saw for each subject. The registry
+/// does not change the schema behind a version, so a sweep reads a schema only
+/// for a latest version it has not seen.
+pub trait KnownSchemas: Sync {
+    fn latest(&self, subject: &str) -> Option<LatestSchema>;
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SchemaReference {
     pub name: String,

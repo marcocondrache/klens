@@ -45,8 +45,8 @@ use crate::kafka::quota::{ClientQuota, DescribedQuota, QuotaListing};
 use crate::kafka::registry::client::SchemaRegistryClient;
 use crate::kafka::registry::decode::PayloadDecoder;
 use crate::kafka::registry::{
-    NewSchema, RegisteredSchema, RegisteredVersion, SchemaCompatibility, SchemaDeletion,
-    SchemaSubject,
+    KnownSchemas, NewSchema, RegisteredSchema, RegisteredVersion, SchemaCompatibility,
+    SchemaDeletion, SchemaSubject,
 };
 use crate::kafka::scan::obfuscate::ObfuscationPolicy;
 use crate::kafka::scan::payload::PayloadCodec;
@@ -403,11 +403,14 @@ impl ClusterSession for KafkaClient {
         self.schema_registry.is_some()
     }
 
-    async fn schema_subjects(&self) -> Result<Vec<SchemaSubject>, KafkaError> {
+    async fn schema_subjects(
+        &self,
+        known: &dyn KnownSchemas,
+    ) -> Result<Vec<SchemaSubject>, KafkaError> {
         let Some(decoder) = &self.schema_registry else {
             return Ok(Vec::new());
         };
-        decoder.client().subjects().await
+        decoder.client().subjects(known).await
     }
 
     async fn subject_schema(
@@ -814,6 +817,7 @@ mod tests {
     use crate::kafka::registry::testing::FakeRegistry;
     use crate::kafka::scan::session::{fetch_page, scan_once};
     use crate::kafka::session::watermarks;
+    use crate::kafka::store::SubjectTable;
     use crate::testing::LogCapture;
 
     fn window(partition: i32, start: i64, end: i64) -> PartitionWindow {
@@ -1562,7 +1566,10 @@ mod tests {
         let registered = client.register_schema(&order_schema()).await.unwrap();
 
         assert_eq!(registered.version, 1);
-        let subjects = client.schema_subjects().await.unwrap();
+        let subjects = client
+            .schema_subjects(&SubjectTable::default())
+            .await
+            .unwrap();
         assert_eq!(subjects[0].subject, "orders-value");
     }
 
@@ -1582,7 +1589,13 @@ mod tests {
             .await
             .unwrap();
 
-        assert!(client.schema_subjects().await.unwrap().is_empty());
+        assert!(
+            client
+                .schema_subjects(&SubjectTable::default())
+                .await
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[tokio::test]
@@ -1597,7 +1610,10 @@ mod tests {
             .await
             .unwrap();
 
-        let subjects = client.schema_subjects().await.unwrap();
+        let subjects = client
+            .schema_subjects(&SubjectTable::default())
+            .await
+            .unwrap();
         assert_eq!(
             subjects[0].compatibility,
             SchemaCompatibility::FullTransitive

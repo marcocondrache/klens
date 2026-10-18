@@ -10,10 +10,11 @@ use foldhash::{HashMap, HashMapExt};
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::{
     Acl, AclListing, BrokerScope, ClientQuota, ClusterIdentity, CommittedOffset, ConfigEdit,
-    ConfigEntry, GroupSnapshot, LogDir, MetadataSnapshot, NewRecord, NewSchema, NewScramCredential,
-    NewTopic, PartitionWindow, ProducedRecord, QuotaListing, RecordDeletion, RegisteredSchema,
-    RegisteredVersion, ScanConsumer, SchemaCompatibility, SchemaDeletion, SchemaSubject,
-    ScramListing, ScramMechanism, TailConsumer, TailPosition, TopicMetadata, Watermarks,
+    ConfigEntry, GroupSnapshot, KnownSchemas, LogDir, MetadataSnapshot, NewRecord, NewSchema,
+    NewScramCredential, NewTopic, PartitionWindow, ProducedRecord, QuotaListing, RecordDeletion,
+    RegisteredSchema, RegisteredVersion, ScanConsumer, SchemaCompatibility, SchemaDeletion,
+    SchemaSubject, ScramListing, ScramMechanism, TailConsumer, TailPosition, TopicMetadata,
+    Watermarks,
 };
 use crate::kafka::scan::obfuscate::ObfuscationPolicy;
 use crate::kafka::scan::payload::PayloadCodec;
@@ -79,7 +80,12 @@ pub trait ClusterSession: Send + Sync + 'static {
 
     fn has_schema_registry(&self) -> bool;
 
-    async fn schema_subjects(&self) -> Result<Vec<SchemaSubject>, KafkaError>;
+    /// Reads the schema behind a subject's latest version only when `known`
+    /// does not hold that version.
+    async fn schema_subjects(
+        &self,
+        known: &dyn KnownSchemas,
+    ) -> Result<Vec<SchemaSubject>, KafkaError>;
 
     async fn subject_schema(
         &self,
