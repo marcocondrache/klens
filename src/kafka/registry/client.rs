@@ -130,8 +130,6 @@ impl SchemaRegistryClient {
         self.registered(&latest)
     }
 
-    /// The schema id of each of `versions` the registry answers for. The reads
-    /// skip the id cache, which holds the schemas records decode with.
     pub async fn version_ids(
         &self,
         versions: &[(Arc<str>, i32)],
@@ -164,7 +162,6 @@ impl SchemaRegistryClient {
             .await
     }
 
-    /// Encodes `json` with the schema the registry holds under `id`.
     pub async fn encode(&self, id: i32, json: &str) -> Result<Bytes, KafkaError> {
         let schema = self
             .registry
@@ -196,8 +193,6 @@ impl SchemaRegistryClient {
             .map_err(|error| self.fail(error.to_string()))?
     }
 
-    /// The name and body of every schema `references` reaches, each after
-    /// the schemas it references.
     pub(crate) async fn dependencies(
         &self,
         references: &[schemreg::SchemaReference],

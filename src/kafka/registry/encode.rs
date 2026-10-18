@@ -22,9 +22,6 @@ enum EncodeError {
 }
 
 impl RegisteredSchema {
-    /// Writes `json` the way the registry's serializers do, as the first
-    /// message of a protobuf schema. `dependencies` holds the schemas this one
-    /// references, each after the schemas it references in turn.
     pub(crate) fn encode(
         &self,
         dependencies: &[(String, String)],

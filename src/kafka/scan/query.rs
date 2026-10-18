@@ -76,7 +76,6 @@ impl RecordAt {
     }
 }
 
-/// Both ends are inclusive.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TimestampRange {
     from: Option<Timestamp>,
