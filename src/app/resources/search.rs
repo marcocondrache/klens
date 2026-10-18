@@ -16,6 +16,19 @@ mod tests;
 
 pub(crate) use types::SearchHit;
 
+/// The fuzzy matcher's memory grows with the query, and a Kafka name is at
+/// most 249 characters.
+pub(crate) const MAX_QUERY_CHARS: usize = 256;
+
+pub(crate) fn check_query_length(query: &str) -> Result<(), ApiError> {
+    if query.chars().count() > MAX_QUERY_CHARS {
+        return Err(ApiError::unprocessable(format!(
+            "a query holds at most {MAX_QUERY_CHARS} characters"
+        )));
+    }
+    Ok(())
+}
+
 pub(crate) fn router() -> Router<AppState> {
     Router::new().route("/", get(search))
 }
@@ -31,6 +44,7 @@ async fn search(
     Path(name): Path<String>,
     Query(query): Query<SearchQuery>,
 ) -> Result<Json<Vec<SearchHit>>, ApiError> {
+    check_query_length(&query.q)?;
     let cluster = session.cluster(&name)?;
     Ok(Json(
         cluster

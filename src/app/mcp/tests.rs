@@ -12,15 +12,13 @@ use walkdir::WalkDir;
 
 use super::configs::Section;
 use super::untrusted::Boundary;
-use super::{
-    CLIENT_VALUES_NOTICE, MAX_QUERY_CHARS, MAX_REQUEST_BYTES, OBFUSCATED_NOTICE, RESULT_BYTES,
-    tool_list,
-};
+use super::{CLIENT_VALUES_NOTICE, MAX_REQUEST_BYTES, OBFUSCATED_NOTICE, RESULT_BYTES, tool_list};
 use crate::app::auth::access::{AccessPolicy, Privilege};
 use crate::app::auth::testing::FakeOidc;
 use crate::app::mcp::reply::{Page, fit, fits, reply};
 use crate::app::mcp::server::KlensMcp;
 use crate::app::mcp::tools::gates;
+use crate::app::resources::search::MAX_QUERY_CHARS;
 use crate::app::{AuthState, Limits, mcp_router};
 use crate::config::{Mcp, Tuning};
 use crate::kafka::model::{
