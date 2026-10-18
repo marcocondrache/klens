@@ -161,7 +161,7 @@ mod tests {
             DecodedPayload::decoded(framed(7, b"..."), serde_json::json!({"status": "FAILED"}));
 
         assert_eq!(payload.text(), r#"{"status":"FAILED"}"#);
-        assert_eq!(payload.text(), r#"{"status":"FAILED"}"#);
+        assert!(std::ptr::eq(payload.text(), payload.text()));
         assert_eq!(payload.into_text(), r#"{"status":"FAILED"}"#);
     }
 

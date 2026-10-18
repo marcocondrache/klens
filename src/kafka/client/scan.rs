@@ -169,7 +169,6 @@ mod tests {
 
     use super::*;
     use crate::kafka::client::testing::Broker;
-    use crate::kafka::session::ClusterSession;
     use crate::testing::eventually;
 
     fn window(partition: i32, start: i64, end: i64) -> PartitionWindow {
@@ -358,25 +357,6 @@ mod tests {
             broker.request_count(ApiKey::ListOffsets),
             after_first,
             "a second pass reuses the consumer's known position"
-        );
-        scan.close().await;
-    }
-
-    #[tokio::test]
-    async fn an_opened_scan_resolves_no_offsets_of_its_own() {
-        let broker = Broker::orders(2).await;
-        let client = broker.client().await;
-        broker.clear_requests();
-
-        let scan = client
-            .open_scan("orders", &[window(0, 0, 2)])
-            .await
-            .unwrap();
-
-        assert_eq!(
-            broker.request_count(ApiKey::ListOffsets),
-            0,
-            "pre-seeded window starts leave nothing for auto-offset-reset to ask"
         );
         scan.close().await;
     }

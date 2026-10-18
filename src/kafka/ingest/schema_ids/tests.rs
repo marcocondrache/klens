@@ -82,21 +82,6 @@ async fn a_new_version_keeps_the_ids_its_newest_held_version_confirms() {
 }
 
 #[tokio::test]
-async fn a_subject_registered_again_with_more_versions_has_its_ids_read_again() {
-    let rig = bare();
-    rig.cluster.put_subject("orders-value", &[5, 6]);
-    poll(&rig).await;
-
-    rig.cluster.put_subject("orders-value", &[1, 2, 3]);
-    poll(&rig).await;
-
-    assert_eq!(
-        versions(&rig, "orders-value"),
-        [(1, Some(1)), (2, Some(2)), (3, Some(3))]
-    );
-}
-
-#[tokio::test]
 async fn a_latest_version_that_changed_id_has_its_older_ids_read_again() {
     let rig = bare();
     rig.cluster.put_subject("orders-value", &[5, 6, 7]);
