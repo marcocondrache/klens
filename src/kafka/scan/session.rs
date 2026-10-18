@@ -230,9 +230,7 @@ impl ScanSession {
         for &partition in &done {
             scan.finish(partition);
         }
-        if !done.is_empty() {
-            self.consumer.pause(&done).await;
-        }
+        self.consumer.pause(&done).await;
     }
 }
 
