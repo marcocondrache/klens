@@ -41,7 +41,7 @@ impl ScanPoolInner {
     }
 
     fn take(&mut self, topic: &str, evicted: &mut Vec<Arc<Consumer>>) -> Option<Arc<Consumer>> {
-        self.expire(evicted);
+        self.expire(Instant::now(), evicted);
 
         while let Some(candidate) = self.remove_newest(topic) {
             if !candidate.consumer.is_closed() {
@@ -61,7 +61,7 @@ impl ScanPoolInner {
     }
 
     fn park(&mut self, topic: &str, consumer: Arc<Consumer>, evicted: &mut Vec<Arc<Consumer>>) {
-        self.expire(evicted);
+        self.expire(Instant::now(), evicted);
 
         let same_topic = self
             .parked
@@ -80,10 +80,10 @@ impl ScanPoolInner {
         });
     }
 
-    fn expire(&mut self, evicted: &mut Vec<Arc<Consumer>>) {
+    fn expire(&mut self, now: Instant, evicted: &mut Vec<Arc<Consumer>>) {
         while let Some(expired) = self
             .parked
-            .pop_front_if(|parked| parked.since.elapsed() > self.ttl)
+            .pop_front_if(|parked| now.saturating_duration_since(parked.since) > self.ttl)
         {
             evicted.push(expired.consumer);
         }
@@ -108,7 +108,7 @@ impl ScanPool {
                 let Some(pool) = weak.upgrade() else {
                     return;
                 };
-                pool.with_idle(|idle, evicted| idle.expire(evicted));
+                pool.with_idle(|idle, evicted| idle.expire(Instant::now(), evicted));
             }
         });
 
@@ -199,4 +199,41 @@ pub(super) async fn assign(
         consumer.seek(topic, window.partition, window.start).await?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::kafka::client::testing::Broker;
+
+    #[tokio::test]
+    async fn a_parked_consumer_is_retired_once_it_idles_past_the_ttl() {
+        let broker = Broker::orders(1).await;
+        let client = broker.client().await;
+        let window = PartitionWindow {
+            partition: 0,
+            start: 0,
+            end: 1,
+        };
+        let consumer = client.scans.build("orders", &[window]).await.unwrap();
+        let mut idle = ScanPoolInner::new(&ScanTuning::default());
+        let mut evicted = Vec::new();
+
+        idle.park("orders", Arc::new(consumer), &mut evicted);
+        let parked_at = idle.parked[0].since;
+
+        idle.expire(parked_at + idle.ttl, &mut evicted);
+        assert_eq!(
+            idle.parked.len(),
+            1,
+            "a consumer idle for the ttl stays parked"
+        );
+
+        idle.expire(
+            parked_at + idle.ttl + Duration::from_millis(1),
+            &mut evicted,
+        );
+        assert!(idle.parked.is_empty());
+        assert_eq!(evicted.len(), 1);
+    }
 }
