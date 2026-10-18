@@ -32,6 +32,7 @@ export function BrokersPage() {
         description={
           <>
             {brokers.length} brokers
+            {health?.kafkaVersion && <> · Kafka {health.kafkaVersion}</>}
             <LaneCaption lane={health?.topology} />
           </>
         }

@@ -101,6 +101,7 @@ function apply(queryClient: QueryClient, cluster: string, update: Update): void 
 
       if (update.brokersChanged) {
         void queryClient.invalidateQueries({ queryKey: keys.brokerRows(cluster), exact: true });
+        void queryClient.invalidateQueries({ queryKey: keys.clusters(), exact: true });
       }
       return;
     }
