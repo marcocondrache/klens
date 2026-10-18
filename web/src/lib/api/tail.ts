@@ -34,6 +34,7 @@ export function useTail(cluster: string, filter: TailFilter) {
     }),
     enabled: !paused && filter.partitions?.length !== 0,
     staleTime: 0,
+    gcTime: 0,
     retry: (_, error) => !(error instanceof ApiError),
   });
 

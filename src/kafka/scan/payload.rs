@@ -66,8 +66,9 @@ impl DecodedPayload {
     }
 
     pub fn is_verbatim(&self) -> bool {
-        str::from_utf8(&self.raw)
-            .is_ok_and(|raw| self.json.is_none() && self.text.get().is_none_or(|text| text == raw))
+        self.json.is_none()
+            && str::from_utf8(&self.raw)
+                .is_ok_and(|raw| self.text.get().is_none_or(|text| text == raw))
     }
 
     pub fn drop_tree_if_rendered(&mut self) {

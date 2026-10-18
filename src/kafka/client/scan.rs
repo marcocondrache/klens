@@ -3,6 +3,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use async_trait::async_trait;
+use foldhash::HashMap;
 use krafka::Kafka;
 use krafka::consumer::{
     AutoOffsetReset, Consumer, ConsumerBuilder, ConsumerRecord, TopicPartition,
@@ -142,12 +143,14 @@ impl ScanConsumer for ScanLease {
         self.consumer.position(&self.topic, partition).await
     }
 
-    async fn lag(&self, partition: i32) -> Option<u64> {
+    async fn lags(&self) -> HashMap<i32, u64> {
         self.consumer
             .lag()
             .await
-            .get(&TopicPartition::new(self.topic.as_str(), partition))?
-            .lag
+            .into_iter()
+            .filter(|(partition, _)| partition.topic == self.topic)
+            .filter_map(|(partition, lag)| Some((partition.partition, lag.lag?)))
+            .collect()
     }
 
     async fn close(&self) {
@@ -326,13 +329,13 @@ mod tests {
 
         assert_eq!(scan.position(0).await, Some(0));
         assert_eq!(
-            scan.lag(0).await,
+            scan.lags().await.get(&0),
             None,
             "nothing fetched yet, so the high watermark is unknown"
         );
         assert_eq!(read(&scan, window(0, 0, 2)).await, vec![0, 1]);
         assert_eq!(scan.position(0).await, Some(2));
-        assert_eq!(scan.lag(0).await, Some(0));
+        assert_eq!(scan.lags().await.get(&0), Some(&0));
 
         scan.close().await;
     }

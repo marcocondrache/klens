@@ -109,14 +109,6 @@ export function formatRelative(value: string | number, now = Date.now()) {
   return "just now";
 }
 
-export function prettyJson(raw: string) {
-  try {
-    return JSON.stringify(JSON.parse(raw), null, 2);
-  } catch {
-    return raw;
-  }
-}
-
 export function isJson(raw: string) {
   try {
     JSON.parse(raw);

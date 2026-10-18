@@ -5,8 +5,15 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { CopyButton } from "@/components/copy-button";
 import { IconButton } from "@/components/icon-button";
 import { JsonBlock } from "@/components/json-block";
-import { isJson, prettyJson } from "@/lib/format";
 import { cn } from "@/lib/utils";
+
+function parsePayload(source: string) {
+  try {
+    return { json: true, prettySource: JSON.stringify(JSON.parse(source), null, 2) };
+  } catch {
+    return { json: false, prettySource: source };
+  }
+}
 
 export function PayloadView({
   label,
@@ -31,8 +38,7 @@ export function PayloadView({
   onExpandedChange?: (expanded: boolean) => void;
   fill?: boolean;
 }) {
-  const json = useMemo(() => isJson(source), [source]);
-  const prettySource = useMemo(() => (json ? prettyJson(source) : source), [json, source]);
+  const { json, prettySource } = useMemo(() => parsePayload(source), [source]);
   const [pretty, setPretty] = useState(true);
   const displayed = json && pretty ? prettySource : source;
   const showPrettyToggle = json && prettySource !== source;

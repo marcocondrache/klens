@@ -48,6 +48,7 @@ Write a comment only to explain a non-obvious why. Do not narrate what the code 
 Run the checks that cover what you changed.
 
 - `cargo fmt --all`
+- `mise run toml:fmt`
 - `cargo clippy --workspace --all-targets --all-features -- -D warnings`
 - `cargo nextest run --workspace --exclude e2e`
 - `mise run web:check`

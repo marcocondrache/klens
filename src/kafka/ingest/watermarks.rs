@@ -195,7 +195,7 @@ impl LaneSource for WatermarkLane {
         self.mark_committed(now);
 
         let mut rates = rates_between(previous.map(Arc::as_ref), next, elapsed);
-        rates.retain(|rate| store.rates.set(&rate.topic, rate.rate));
+        store.rates.keep_changed(&mut rates);
         if rates.is_empty() {
             return;
         }
@@ -219,13 +219,13 @@ fn rates_between(
         .map(|(topic, partitions)| {
             let rate = match baseline {
                 Some((previous, seconds)) => {
+                    let before_marks = previous.marks.get(topic);
                     let produced: i64 = partitions
                         .iter()
                         .map(|(partition, marks)| {
-                            let before = previous
-                                .get(topic, *partition)
-                                .map(|marks: Watermarks| marks.high)
-                                .unwrap_or(marks.high);
+                            let before = before_marks
+                                .and_then(|before| before.get(partition))
+                                .map_or(marks.high, |before| before.high);
                             (marks.high - before).max(0)
                         })
                         .sum();

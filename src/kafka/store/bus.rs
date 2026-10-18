@@ -83,15 +83,17 @@ impl TopologyDelta {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct WatermarksTick {
+    /// Sorted by topic.
     pub rates: Vec<TopicRate>,
 }
 
 impl WatermarksTick {
     pub fn rate(&self, topic: &str) -> Option<f64> {
-        self.rates
-            .iter()
-            .find(|rate| &*rate.topic == topic)
-            .map(|rate| rate.rate)
+        let index = self
+            .rates
+            .binary_search_by(|rate| (*rate.topic).cmp(topic))
+            .ok()?;
+        Some(self.rates[index].rate)
     }
 }
 

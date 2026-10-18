@@ -2,6 +2,8 @@ use std::sync::{Arc, RwLock};
 
 use foldhash::{HashMap, HashMapExt};
 
+use super::bus::TopicRate;
+
 #[derive(Debug)]
 pub struct RateStore {
     topic_rates: RwLock<HashMap<Arc<str>, f64>>,
@@ -23,13 +25,13 @@ impl RateStore {
     /// Returns whether the stored rate changed.
     pub fn set(&self, topic: &Arc<str>, rate: f64) -> bool {
         let mut rates = self.topic_rates.write().expect("rate store lock");
-        match rates.get_mut(topic) {
-            Some(slot) => std::mem::replace(slot, rate) != rate,
-            None => {
-                rates.insert(Arc::clone(topic), rate);
-                true
-            }
-        }
+        replace(&mut rates, topic, rate)
+    }
+
+    /// Stores every rate under one lock and keeps only the ones that changed.
+    pub fn keep_changed(&self, updates: &mut Vec<TopicRate>) {
+        let mut rates = self.topic_rates.write().expect("rate store lock");
+        updates.retain(|update| replace(&mut rates, &update.topic, update.rate));
     }
 
     pub fn get(&self, topic: &str) -> Option<f64> {
@@ -45,6 +47,16 @@ impl RateStore {
             .write()
             .expect("rate store lock")
             .retain(|topic, _| live(topic));
+    }
+}
+
+fn replace(rates: &mut HashMap<Arc<str>, f64>, topic: &Arc<str>, rate: f64) -> bool {
+    match rates.get_mut(topic) {
+        Some(slot) => std::mem::replace(slot, rate) != rate,
+        None => {
+            rates.insert(Arc::clone(topic), rate);
+            true
+        }
     }
 }
 

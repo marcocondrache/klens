@@ -76,6 +76,10 @@ jobs:
           components: rustfmt
       - name: Check formatting
         run: cargo fmt --all --check
+      - name: Install taplo
+        uses: taiki-e/install-action@bd0be4b6e7b5abe27803bba6c95ed86c912aec58 # taplo
+      - name: Check Cargo manifest formatting
+        run: taplo fmt --check
       - name: Check for typos
         uses: crate-ci/typos@7f9d0819ca1c008ade73f4b41fa9d258d48f605b # v1.51.1
 

@@ -119,14 +119,23 @@ impl ScanConsumer for FakeScan {
         self.position_of(partition)
     }
 
-    async fn lag(&self, partition: i32) -> Option<u64> {
-        let position = self.position_of(partition)?;
-        let high = lock(&self.world)
-            .watermarks
-            .get(&self.topic)?
-            .get(&partition)?
-            .high;
-        Some(high.saturating_sub(position).max(0) as u64)
+    async fn lags(&self) -> HashMap<i32, u64> {
+        let partitions: Vec<i32> = self.state().windows.keys().copied().collect();
+        let positions: Vec<(i32, i64)> = partitions
+            .into_iter()
+            .filter_map(|partition| Some((partition, self.position_of(partition)?)))
+            .collect();
+        let world = lock(&self.world);
+        let Some(highs) = world.watermarks.get(&self.topic) else {
+            return HashMap::default();
+        };
+        positions
+            .into_iter()
+            .filter_map(|(partition, position)| {
+                let high = highs.get(&partition)?.high;
+                Some((partition, high.saturating_sub(position).max(0) as u64))
+            })
+            .collect()
     }
 
     async fn close(&self) {}
