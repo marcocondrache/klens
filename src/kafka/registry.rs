@@ -1,3 +1,4 @@
+mod avro;
 pub mod client;
 pub mod decode;
 mod encode;

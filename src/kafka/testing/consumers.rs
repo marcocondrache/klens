@@ -8,7 +8,7 @@ use foldhash::{HashMap, HashSet};
 use super::cluster::{World, lock};
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::{PartitionWindow, RawRecord, ScanConsumer, TailConsumer, TailPosition};
-use crate::kafka::scan::payload::{DecodedPayload, PayloadCodec, PayloadSlot};
+use crate::kafka::scan::payload::{PayloadCodec, PayloadSlot, ResolvedCodec};
 
 pub const FAKE_TAIL_POLL_RECORDS: usize = 4;
 
@@ -248,9 +248,16 @@ impl CountingCodec {
 
 #[async_trait]
 impl PayloadCodec for CountingCodec {
-    async fn decode_batch(&self, slots: &mut [PayloadSlot]) {
+    async fn resolve(&self, slots: &[PayloadSlot]) -> Box<dyn ResolvedCodec> {
         self.decoded.fetch_add(slots.len(), Ordering::SeqCst);
+        Box::new(FramedJson)
+    }
+}
 
+struct FramedJson;
+
+impl ResolvedCodec for FramedJson {
+    fn decode(&self, slots: &mut [PayloadSlot]) {
         for slot in slots {
             let Ok((_, body)) = schemreg::decode_wire_prefix(&slot.raw) else {
                 continue;
@@ -259,7 +266,7 @@ impl PayloadCodec for CountingCodec {
                 continue;
             };
 
-            slot.decoded = Some(DecodedPayload::decoded(slot.raw.clone(), json));
+            slot.json = Some(json);
         }
     }
 }

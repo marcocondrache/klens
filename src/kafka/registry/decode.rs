@@ -4,21 +4,21 @@ use std::time::Duration;
 use foldhash::{HashMap, HashMapExt, HashSet};
 
 use async_trait::async_trait;
-use bytes::Bytes;
 use futures::StreamExt;
 use futures::stream::FuturesUnordered;
 use moka::future::Cache;
-use schemreg::{
-    AvroSchemaDecoder, Schema, SchemaId, SchemaKey, SchemaRegistryClient as _, decode_wire_prefix,
-    encode_wire_format,
-};
+use schemreg::{Schema, SchemaId, SchemaKey, SchemaRegistryClient as _, decode_wire_prefix};
 use serde_json::Value;
 use thiserror::Error;
 
+use super::avro::AvroCodec;
 use super::client::{Registry, SchemaRegistryClient};
 use super::protobuf::{ProtobufCodec, ProtobufError};
 use crate::kafka::model::SchemaType;
-use crate::kafka::scan::payload::{DecodedPayload, PayloadCodec, PayloadSlot};
+use crate::kafka::scan::payload::{PayloadCodec, PayloadSlot, ResolvedCodec};
+
+#[cfg(test)]
+use bytes::Bytes;
 
 const MAX_CACHED_SCHEMAS: u64 = 10_000;
 const FAILED_LOOKUP_TTL: Duration = Duration::from_secs(5);
@@ -52,18 +52,51 @@ impl Framing {
 #[derive(Clone)]
 pub(crate) struct PayloadDecoder {
     client: SchemaRegistryClient,
-    avro: Arc<AvroSchemaDecoder<Arc<Registry>>>,
-    pools: Cache<SchemaKey, Arc<ProtobufCodec>>,
+    codecs: Cache<SchemaKey, Resolved>,
     missing: Cache<SchemaKey, ()>,
     failed: Cache<SchemaKey, DecodeError>,
 }
 
 #[derive(Clone)]
 enum Resolved {
-    Avro,
+    Avro(Arc<AvroCodec>),
     Json,
     Protobuf(Arc<ProtobufCodec>),
     Missing,
+}
+
+impl Resolved {
+    fn compile(
+        schema_type: SchemaType,
+        source: &str,
+        dependencies: &[(String, String)],
+    ) -> Result<Self, DecodeError> {
+        match schema_type {
+            SchemaType::Avro => AvroCodec::compile(source, dependencies)
+                .map(|codec| Self::Avro(Arc::new(codec)))
+                .map_err(DecodeError::failed),
+            SchemaType::Json => Ok(Self::Json),
+            SchemaType::Protobuf => ProtobufCodec::compile(source, dependencies)
+                .map(|codec| Self::Protobuf(Arc::new(codec)))
+                .map_err(DecodeError::from),
+        }
+    }
+
+    fn decode(&self, framing: Framing, raw: &[u8]) -> Result<Value, DecodeError> {
+        let body = &raw[framing.payload_start.min(raw.len())..];
+
+        match self {
+            Self::Missing => Err(DecodeError::missing("schema id not found in registry")),
+            Self::Json => serde_json::from_slice(body).map_err(DecodeError::failed),
+            Self::Avro(codec) => codec.decode(body).map_err(DecodeError::failed),
+            Self::Protobuf(codec) => if framing.has_wire_prefix {
+                codec.decode_framed(body)
+            } else {
+                codec.decode_raw(body)
+            }
+            .map_err(DecodeError::from),
+        }
+    }
 }
 
 impl PayloadDecoder {
@@ -76,12 +109,9 @@ impl PayloadDecoder {
         missing_ttl: Duration,
         failed_ttl: Duration,
     ) -> Self {
-        let avro = AvroSchemaDecoder::new(client.registry().clone());
-
         Self {
             client,
-            avro: Arc::new(avro),
-            pools: Cache::builder().max_capacity(MAX_CACHED_SCHEMAS).build(),
+            codecs: Cache::builder().max_capacity(MAX_CACHED_SCHEMAS).build(),
             missing: Cache::builder()
                 .max_capacity(MAX_CACHED_SCHEMAS)
                 .time_to_live(missing_ttl)
@@ -128,17 +158,17 @@ impl PayloadDecoder {
 
         match SchemaType::try_from(schema.schema_type).map_err(DecodeError::failed)? {
             SchemaType::Json => Ok(Resolved::Json),
-            SchemaType::Avro => Ok(Resolved::Avro),
-            SchemaType::Protobuf => self.pool(key, &schema).await.map(Resolved::Protobuf),
+            schema_type => self.compiled(key, schema_type, &schema).await,
         }
     }
 
-    async fn pool(
+    async fn compiled(
         &self,
         key: SchemaKey,
+        schema_type: SchemaType,
         schema: &Schema,
-    ) -> Result<Arc<ProtobufCodec>, DecodeError> {
-        self.pools
+    ) -> Result<Resolved, DecodeError> {
+        self.codecs
             .try_get_with(key, async {
                 let dependencies = self
                     .client
@@ -146,12 +176,11 @@ impl PayloadDecoder {
                     .await
                     .map_err(DecodeError::failed)?;
                 let source = schema.schema.to_string();
-                let codec = tokio::task::spawn_blocking(move || {
-                    ProtobufCodec::compile(&source, &dependencies)
+                tokio::task::spawn_blocking(move || {
+                    Resolved::compile(schema_type, &source, &dependencies)
                 })
                 .await
-                .map_err(DecodeError::failed)??;
-                Ok::<_, DecodeError>(Arc::new(codec))
+                .map_err(DecodeError::failed)?
             })
             .await
             .map_err(|error| (*error).clone())
@@ -160,27 +189,28 @@ impl PayloadDecoder {
 
 #[async_trait]
 impl PayloadCodec for PayloadDecoder {
-    async fn decode_batch(&self, slots: &mut [PayloadSlot]) {
-        for (key, error) in self.decode_slots(slots).await {
+    async fn resolve(&self, slots: &[PayloadSlot]) -> Box<dyn ResolvedCodec> {
+        let (schemas, failures) = self.resolve_slots(slots).await;
+        for (key, error) in failures {
             error.report(key);
         }
+        Box::new(schemas)
     }
 }
 
 impl PayloadDecoder {
-    async fn decode_slots(&self, slots: &mut [PayloadSlot]) -> Vec<(SchemaKey, DecodeError)> {
-        let mut failures = Vec::new();
-        let framings: Vec<Option<Framing>> = slots.iter().map(Framing::of).collect();
-        let keys: HashSet<SchemaKey> = framings
+    async fn resolve_slots(
+        &self,
+        slots: &[PayloadSlot],
+    ) -> (ResolvedSchemas, Vec<(SchemaKey, DecodeError)>) {
+        let keys: HashSet<SchemaKey> = slots
             .iter()
-            .flatten()
+            .filter_map(Framing::of)
             .map(|framing| framing.key)
             .collect();
-        if keys.is_empty() {
-            return failures;
-        }
 
         let mut schemas = HashMap::with_capacity(keys.len());
+        let mut failures = Vec::new();
         let mut loads: FuturesUnordered<_> = keys
             .into_iter()
             .map(|key| async move { (key, self.resolved(key).await) })
@@ -194,59 +224,41 @@ impl PayloadDecoder {
             }
         }
 
-        for (slot, framing) in slots.iter_mut().zip(framings) {
-            let Some(framing) = framing else {
+        (ResolvedSchemas(schemas), failures)
+    }
+}
+
+struct ResolvedSchemas(HashMap<SchemaKey, Resolved>);
+
+impl ResolvedCodec for ResolvedSchemas {
+    fn decode(&self, slots: &mut [PayloadSlot]) {
+        for (key, error) in self.decode_slots(slots) {
+            error.report(key);
+        }
+    }
+}
+
+impl ResolvedSchemas {
+    fn decode_slots(&self, slots: &mut [PayloadSlot]) -> Vec<(SchemaKey, DecodeError)> {
+        let mut failures = Vec::new();
+
+        for slot in slots {
+            let Some(framing) = Framing::of(slot) else {
                 continue;
             };
-            let Some(resolved) = schemas.get(&framing.key) else {
+            let Some(resolved) = self.0.get(&framing.key) else {
                 continue;
             };
 
-            tokio::task::coop::consume_budget().await;
-            match self.decode_body(resolved, framing, &slot.raw).await {
+            match resolved.decode(framing, &slot.raw) {
                 Ok(json) => {
-                    slot.decoded = Some(DecodedPayload::decoded(slot.raw.clone(), json));
+                    slot.json = Some(json);
                 }
                 Err(error) => failures.push((framing.key, error)),
             }
         }
 
         failures
-    }
-
-    async fn decode_body(
-        &self,
-        resolved: &Resolved,
-        framing: Framing,
-        raw: &Bytes,
-    ) -> Result<Value, DecodeError> {
-        let body = &raw[framing.payload_start.min(raw.len())..];
-
-        match resolved {
-            Resolved::Missing => Err(DecodeError::missing("schema id not found in registry")),
-            Resolved::Json => serde_json::from_slice(body).map_err(DecodeError::failed),
-            Resolved::Avro => {
-                // The decoder reads the identifier off the wire prefix, so an
-                // override has to be handed bytes that carry one.
-                let framed = if framing.has_wire_prefix {
-                    raw.clone()
-                } else {
-                    encode_wire_format(framing.key, body)
-                };
-                let value = self
-                    .avro
-                    .decode(framed)
-                    .await
-                    .map_err(DecodeError::failed)?;
-                Value::try_from(value).map_err(DecodeError::failed)
-            }
-            Resolved::Protobuf(codec) => if framing.has_wire_prefix {
-                codec.decode_framed(body)
-            } else {
-                codec.decode_raw(body)
-            }
-            .map_err(DecodeError::from),
-        }
     }
 }
 
@@ -311,7 +323,7 @@ impl PayloadDecoder {
             Bytes::copy_from_slice(bytes),
             fallback_schema_id,
         )];
-        self.decode_batch(&mut slots).await;
+        self.resolve(&slots).await.decode(&mut slots);
         let [slot] = slots;
         let decoded = slot.take();
 
@@ -330,24 +342,24 @@ impl PayloadDecoder {
             Bytes::copy_from_slice(bytes),
             fallback_schema_id,
         )];
-        let failures = self.decode_slots(&mut slots).await;
+        let (schemas, mut failures) = self.resolve_slots(&slots).await;
+        failures.extend(schemas.decode_slots(&mut slots));
         failures.into_iter().next().map(|(_, error)| error)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicBool, Ordering};
-
     use apache_avro::Schema as AvroSchema;
     use apache_avro::types::{Record, Value as AvroValue};
     use apache_avro::writer::datum::GenericDatumWriter;
-    use schemreg::encode_protobuf_wire_format;
+    use schemreg::{encode_protobuf_wire_format, encode_wire_format};
 
     use super::*;
     use crate::config::SchemaRegistryTuning;
     use crate::kafka::registry::testing::{FakeRegistry, Schema};
     use crate::kafka::scan::filter::CompiledFilter;
+    use crate::kafka::scan::payload::DecodedPayload;
     use crate::testing::LogCapture;
 
     fn decode_bytes(bytes: &[u8]) -> String {
@@ -439,9 +451,13 @@ mod tests {
             .on_payload(None, Some(value))
     }
 
+    async fn decode_batch(decoder: &PayloadDecoder, slots: &mut [PayloadSlot]) {
+        decoder.resolve(slots).await.decode(slots);
+    }
+
     async fn decode_payload(decoder: &PayloadDecoder, bytes: &[u8]) -> DecodedPayload {
         let mut slots = [PayloadSlot::new(Bytes::copy_from_slice(bytes), None)];
-        decoder.decode_batch(&mut slots).await;
+        decode_batch(decoder, &mut slots).await;
         let [slot] = slots;
         slot.take()
     }
@@ -541,28 +557,6 @@ mod tests {
         let framed = frame(7, br#"{"ok": true}"#);
         let json = registry.decoder().decode(&framed).await;
         assert_eq!(json, r#"{"ok":true}"#);
-    }
-
-    #[tokio::test]
-    async fn a_large_batch_lets_other_tasks_run_while_it_decodes() {
-        let registry = FakeRegistry::start().await;
-        registry.put(7, Schema::json(r#"{"type":"object"}"#));
-        let decoder = registry.decoder();
-        decoder.decode(&frame(7, b"{}")).await;
-
-        let ran = Arc::new(AtomicBool::new(false));
-        let other = tokio::spawn({
-            let ran = ran.clone();
-            async move { ran.store(true, Ordering::SeqCst) }
-        });
-        let mut slots: Vec<PayloadSlot> = (0..1024)
-            .map(|n| PayloadSlot::new(Bytes::from(frame(7, n.to_string().as_bytes())), None))
-            .collect();
-        decoder.decode_batch(&mut slots).await;
-
-        assert!(ran.load(Ordering::SeqCst));
-        assert!(slots.iter().all(|slot| slot.decoded.is_some()));
-        other.await.unwrap();
     }
 
     #[tokio::test]
@@ -813,7 +807,7 @@ mod tests {
             })
             .collect();
 
-        decoder.decode_batch(&mut slots).await;
+        decode_batch(&decoder, &mut slots).await;
 
         for (index, slot) in slots.into_iter().enumerate() {
             let value = slot.take().json().expect("decoded").clone();
@@ -856,9 +850,9 @@ mod tests {
             let mut slots: Vec<PayloadSlot> = (0..20)
                 .map(|_| PayloadSlot::new(framed.clone(), None))
                 .collect();
-            decoder.decode_batch(&mut slots).await;
+            decode_batch(&decoder, &mut slots).await;
 
-            assert!(slots.iter().all(|slot| slot.decoded.is_none()));
+            assert!(slots.iter().all(|slot| slot.json.is_none()));
             assert_eq!(
                 logs.count("failed to decode schema registry payload"),
                 batch
