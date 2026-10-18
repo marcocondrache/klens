@@ -64,7 +64,7 @@ impl Scope {
                     Some(topic) => match tick.rate(topic) {
                         None => return Vec::new(),
                         Some(rate) => vec![TopicRate {
-                            topic: topic.to_owned(),
+                            topic: Arc::from(topic),
                             rate,
                         }],
                     },
