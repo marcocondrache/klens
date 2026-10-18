@@ -10,7 +10,6 @@ async fn the_topology_lane_assembles_brokers_topics_and_groups() {
     rig.poll(&mut rig.topology()).await;
 
     let topology = rig.store.topology.load().expect("topology");
-    assert_eq!(topology.cluster_id.as_deref(), Some("test-cluster"));
     assert_eq!(topology.brokers.len(), 1);
     assert_eq!(topology.topics["orders.created"].partitions.len(), 2);
     assert_eq!(

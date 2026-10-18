@@ -22,12 +22,12 @@ use krafka::admin::{
     ConsumerGroupListing, CreateAclsOptions, CreatePartitionsOptions, CreateTopicsOptions,
     DeleteAclsOptions, DeleteConsumerGroupOffsetsOptions, DeleteConsumerGroupsOptions,
     DeleteRecordsOptions, DeleteTopicsOptions, DescribeAclsOptions, DescribeClientQuotasOptions,
-    DescribeClusterOptions, DescribeConfigsOptions, DescribeConsumerGroupsOptions,
-    DescribeLogDirsOptions, DescribeUserScramCredentialsOptions, IncrementalAlterConfigsOptions,
+    DescribeConfigsOptions, DescribeConsumerGroupsOptions, DescribeLogDirsOptions,
+    DescribeUserScramCredentialsOptions, IncrementalAlterConfigsOptions,
     ListConsumerGroupOffsetsOptions, ListConsumerGroupsOptions, ListOffsetsOptions,
     ListTopicsOptions, ListedOffset, OffsetSpec, ScramCredentialDeletion, TopicPartition,
 };
-use krafka::error::{KrafkaError, ProtocolErrorKind};
+use krafka::error::KrafkaError;
 use krafka::producer::Producer;
 use tokio::sync::OnceCell;
 
@@ -175,25 +175,6 @@ impl KafkaClient {
             .await?;
         Ok(log_offsets(listed.into_iter().map(listed_offset_parts)))
     }
-
-    /// Kafka before 2.8 has no DescribeCluster, and no other request krafka
-    /// sends reports the cluster id.
-    async fn cluster_id(&self) -> Result<Option<String>, KafkaError> {
-        match self
-            .transport()
-            .await?
-            .admin
-            .describe_cluster(DescribeClusterOptions::default())
-            .await
-        {
-            Ok(cluster) => Ok(Some(cluster.cluster_id)),
-            Err(KrafkaError::Protocol {
-                kind: ProtocolErrorKind::UnknownApiVersion,
-                ..
-            }) => Ok(None),
-            Err(error) => Err(error.into()),
-        }
-    }
 }
 
 #[async_trait]
@@ -214,16 +195,12 @@ impl ClusterSession for KafkaClient {
         let transport = self.transport().await?;
 
         // Listing the topics refreshes the metadata cache the clients share.
-        let refreshed = async {
-            transport
-                .admin
-                .list_topics(ListTopicsOptions::default().include_internal(true))
-                .await
-                .map_err(KafkaError::from)
-        };
-        let (_, cluster_id) = tokio::try_join!(refreshed, self.cluster_id())?;
+        transport
+            .admin
+            .list_topics(ListTopicsOptions::default().include_internal(true))
+            .await?;
         let cached = transport.metadata.fetch_metadata(None).await?;
-        Ok(MetadataSnapshot::from_krafka(cluster_id, cached))
+        Ok(MetadataSnapshot::from_krafka(cached))
     }
 
     async fn topic_metadata(&self, topic: &str) -> Result<TopicMetadata, KafkaError> {
@@ -1055,6 +1032,25 @@ mod tests {
             .map(|meta| (meta.id, meta.rack.as_deref()))
             .collect();
         assert_eq!(racks, [(0, Some("eu-west-1a"))]);
+    }
+
+    #[tokio::test]
+    async fn metadata_costs_kafka_a_single_metadata_request() {
+        let broker = Broker::start().await;
+        // Unadvertised, krafka would refuse DescribeCluster before sending it,
+        // and the request log could not show a poll that asked for it.
+        broker.set_api_versions(ApiKey::DescribeCluster, 0, 1);
+        let client = broker.client().await;
+        broker.clear_requests();
+
+        client.metadata().await.expect("metadata");
+
+        let apis: Vec<ApiKey> = broker
+            .requests()
+            .iter()
+            .map(|request| request.api_key)
+            .collect();
+        assert_eq!(apis, [ApiKey::Metadata]);
     }
 
     #[tokio::test]

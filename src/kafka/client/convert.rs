@@ -24,9 +24,8 @@ use crate::kafka::storage::{LogDir, ReplicaLog};
 use crate::kafka::topic_config::{BrokerScope, ConfigEdit, ConfigEntry, ConfigSource};
 
 impl MetadataSnapshot {
-    pub(super) fn from_krafka(cluster_id: Option<String>, cached: FetchMetadataResult) -> Self {
+    pub(super) fn from_krafka(cached: FetchMetadataResult) -> Self {
         Self {
-            cluster_id,
             brokers: cached
                 .brokers
                 .into_iter()

@@ -46,7 +46,6 @@ pub fn topic(name: &str, partitions: Vec<PartitionMetadata>) -> TopicMetadata {
 
 pub fn metadata(topics: Vec<TopicMetadata>) -> MetadataSnapshot {
     MetadataSnapshot {
-        cluster_id: Some("test-cluster".into()),
         brokers: vec![BrokerMetadata {
             id: 1,
             host: "localhost".into(),
