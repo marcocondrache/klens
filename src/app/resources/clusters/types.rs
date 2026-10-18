@@ -32,6 +32,9 @@ impl From<store::LaneHealth> for LaneHealth {
 pub struct ClusterHealth {
     pub cluster: String,
     pub ready: bool,
+    /// The release that introduced the cluster's `metadata.version`, such as
+    /// `3.7-IV4`. Absent on a ZooKeeper cluster.
+    pub kafka_version: Option<String>,
     pub topology: LaneHealth,
     pub watermarks: LaneHealth,
     pub offsets: LaneHealth,
@@ -54,6 +57,10 @@ impl From<projections::ClusterHealthView> for ClusterHealth {
     fn from(health: projections::ClusterHealthView) -> Self {
         Self {
             ready: health.topology.updated_at.is_some(),
+            kafka_version: health
+                .metadata_version
+                .and_then(|version| version.name())
+                .map(str::to_owned),
             cluster: health.cluster,
             topology: health.topology.into(),
             watermarks: health.watermarks.into(),

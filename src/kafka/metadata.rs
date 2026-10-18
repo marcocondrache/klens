@@ -6,6 +6,7 @@ use thiserror::Error;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MetadataSnapshot {
     pub cluster_id: Option<String>,
+    pub metadata_version: Option<MetadataVersion>,
     pub brokers: Vec<BrokerMetadata>,
     pub topics: Vec<TopicMetadata>,
 }
@@ -14,6 +15,33 @@ impl MetadataSnapshot {
     #[cfg(test)]
     pub(crate) fn topic(&self, name: &str) -> Option<&TopicMetadata> {
         self.topics.iter().find(|topic| topic.name == name)
+    }
+}
+
+/// The cluster's finalized `metadata.version` feature level. Kafka never
+/// reports its build version, so this level stands in for it. Only KRaft
+/// clusters finalize one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MetadataVersion(pub i16);
+
+impl MetadataVersion {
+    pub const FEATURE: &str = "metadata.version";
+
+    /// Kafka's name for each level, from level 1. Kafka assigns a new level in
+    /// every release, so a level past this table names no release yet.
+    const NAMES: [&str; 34] = [
+        "3.0-IV1", "3.1-IV0", "3.2-IV0", "3.3-IV0", "3.3-IV1", "3.3-IV2", "3.3-IV3", "3.4-IV0",
+        "3.5-IV0", "3.5-IV1", "3.5-IV2", "3.6-IV0", "3.6-IV1", "3.6-IV2", "3.7-IV0", "3.7-IV1",
+        "3.7-IV2", "3.7-IV3", "3.7-IV4", "3.8-IV0", "3.9-IV0", "4.0-IV0", "4.0-IV1", "4.0-IV2",
+        "4.0-IV3", "4.1-IV0", "4.1-IV1", "4.2-IV0", "4.2-IV1", "4.3-IV0", "4.4-IV0", "4.4-IV1",
+        "4.4-IV2", "4.5-IV0",
+    ];
+
+    /// The release and internal version that introduced this level, such as
+    /// `3.7-IV4`.
+    pub fn name(self) -> Option<&'static str> {
+        let index = usize::try_from(self.0).ok()?.checked_sub(1)?;
+        Self::NAMES.get(index).copied()
     }
 }
 
@@ -108,6 +136,16 @@ pub fn validate_topic_name(name: &str) -> Result<(), InvalidTopicName> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_metadata_version_names_the_release_that_introduced_it() {
+        assert_eq!(MetadataVersion(1).name(), Some("3.0-IV1"));
+        assert_eq!(MetadataVersion(19).name(), Some("3.7-IV4"));
+        assert_eq!(MetadataVersion(34).name(), Some("4.5-IV0"));
+        assert_eq!(MetadataVersion(35).name(), None);
+        assert_eq!(MetadataVersion(0).name(), None);
+        assert_eq!(MetadataVersion(-1).name(), None);
+    }
 
     #[test]
     fn a_topic_name_is_checked_against_kafkas_rule() {

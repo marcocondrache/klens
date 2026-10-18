@@ -44,6 +44,7 @@ impl TopologyDelta {
             diff_maps(&previous.groups, &next.groups);
         let brokers_changed = previous.brokers != next.brokers
             || previous.cluster_id != next.cluster_id
+            || previous.metadata_version != next.metadata_version
             || previous.controller != next.controller;
 
         let delta = Self {
@@ -279,6 +280,7 @@ mod tests {
     use foldhash::HashMap;
 
     use crate::kafka::group::GroupState;
+    use crate::kafka::metadata::MetadataVersion;
     use crate::kafka::topic_config::ConfigEntry;
     use crate::testing::{config_entry, group, log_dir, partition, subject, topic, topology};
 
@@ -303,6 +305,18 @@ mod tests {
             vec![group("billing", "orders", vec![0])],
         );
         assert_eq!(TopologyDelta::between(Some(&table), &table), None);
+    }
+
+    #[test]
+    fn a_metadata_version_upgrade_alone_is_a_change() {
+        let before = topology(Vec::new(), Vec::new());
+        let after = Topology {
+            metadata_version: Some(MetadataVersion(21)),
+            ..before.clone()
+        };
+
+        let delta = TopologyDelta::between(Some(&before), &after).expect("upgrade is a change");
+        assert!(delta.brokers_changed);
     }
 
     #[test]

@@ -16,17 +16,22 @@ use crate::kafka::group::{
     CommittedOffset, GroupMember, GroupSnapshot, GroupState, MemberAssignment,
 };
 use crate::kafka::metadata::{
-    BrokerMetadata, MetadataSnapshot, NewTopic, PartitionMetadata, RecordDeletion, TopicMetadata,
-    is_internal_topic, validate_topic_name,
+    BrokerMetadata, MetadataSnapshot, MetadataVersion, NewTopic, PartitionMetadata, RecordDeletion,
+    TopicMetadata, is_internal_topic, validate_topic_name,
 };
 use crate::kafka::produce::NewRecord;
 use crate::kafka::storage::{LogDir, ReplicaLog};
 use crate::kafka::topic_config::{BrokerScope, ConfigEdit, ConfigEntry, ConfigSource};
 
 impl MetadataSnapshot {
-    pub(super) fn from_krafka(cluster_id: Option<String>, cached: FetchMetadataResult) -> Self {
+    pub(super) fn from_krafka(
+        cluster_id: Option<String>,
+        metadata_version: Option<MetadataVersion>,
+        cached: FetchMetadataResult,
+    ) -> Self {
         Self {
             cluster_id,
+            metadata_version,
             brokers: cached
                 .brokers
                 .into_iter()

@@ -23,9 +23,10 @@ use krafka::admin::{
     DeleteAclsOptions, DeleteConsumerGroupOffsetsOptions, DeleteConsumerGroupsOptions,
     DeleteRecordsOptions, DeleteTopicsOptions, DescribeAclsOptions, DescribeClientQuotasOptions,
     DescribeClusterOptions, DescribeConfigsOptions, DescribeConsumerGroupsOptions,
-    DescribeLogDirsOptions, DescribeUserScramCredentialsOptions, IncrementalAlterConfigsOptions,
-    ListConsumerGroupOffsetsOptions, ListConsumerGroupsOptions, ListOffsetsOptions,
-    ListTopicsOptions, ListedOffset, OffsetSpec, ScramCredentialDeletion, TopicPartition,
+    DescribeFeaturesOptions, DescribeLogDirsOptions, DescribeUserScramCredentialsOptions,
+    IncrementalAlterConfigsOptions, ListConsumerGroupOffsetsOptions, ListConsumerGroupsOptions,
+    ListOffsetsOptions, ListTopicsOptions, ListedOffset, OffsetSpec, ScramCredentialDeletion,
+    TopicPartition,
 };
 use krafka::error::{KrafkaError, ProtocolErrorKind};
 use krafka::producer::Producer;
@@ -36,7 +37,9 @@ use crate::kafka::acl::{Acl, AclListing};
 use crate::kafka::cluster::ClusterIdentity;
 use crate::kafka::error::KafkaError;
 use crate::kafka::group::{CommittedOffset, GroupSnapshot};
-use crate::kafka::metadata::{MetadataSnapshot, NewTopic, TopicMetadata, validate_topic_name};
+use crate::kafka::metadata::{
+    MetadataSnapshot, MetadataVersion, NewTopic, TopicMetadata, validate_topic_name,
+};
 use crate::kafka::model::{
     NewRecord, PartitionWindow, ProducedRecord, RecordDeletion, ScanConsumer, TailConsumer,
     TailPosition,
@@ -166,6 +169,28 @@ impl KafkaClient {
             Err(error) => Err(error.into()),
         }
     }
+
+    /// Kafka before 2.4 reports no features, and a ZooKeeper cluster
+    /// finalizes no `metadata.version`.
+    async fn metadata_version(&self) -> Result<Option<MetadataVersion>, KafkaError> {
+        match self
+            .transport
+            .admin
+            .describe_features(DescribeFeaturesOptions::default())
+            .await
+        {
+            Ok(features) => Ok(features
+                .finalized
+                .into_iter()
+                .find(|feature| feature.name == MetadataVersion::FEATURE)
+                .map(|feature| MetadataVersion(feature.max_version_level))),
+            Err(KrafkaError::Protocol {
+                kind: ProtocolErrorKind::UnknownApiVersion,
+                ..
+            }) => Ok(None),
+            Err(error) => Err(error.into()),
+        }
+    }
 }
 
 #[async_trait]
@@ -191,9 +216,14 @@ impl ClusterSession for KafkaClient {
                 .await
                 .map_err(KafkaError::from)
         };
-        let (_, cluster_id) = tokio::try_join!(refreshed, self.cluster_id())?;
+        let (_, cluster_id, metadata_version) =
+            tokio::try_join!(refreshed, self.cluster_id(), self.metadata_version())?;
         let cached = self.transport.metadata.fetch_metadata(None).await?;
-        Ok(MetadataSnapshot::from_krafka(cluster_id, cached))
+        Ok(MetadataSnapshot::from_krafka(
+            cluster_id,
+            metadata_version,
+            cached,
+        ))
     }
 
     async fn topic_metadata(&self, topic: &str) -> Result<TopicMetadata, KafkaError> {
@@ -798,6 +828,7 @@ mod tests {
     use std::collections::BTreeMap;
     use std::num::NonZeroU16;
 
+    use krafka::admin::{FeatureUpdateKey, UpdateFeaturesOptions};
     use krafka::error::ErrorCode;
     use krafka::testing::ApiKey;
     use krafka::testing::Control;
@@ -949,6 +980,31 @@ mod tests {
                 "{api}: {error:?}"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn metadata_reads_the_finalized_metadata_version() {
+        let broker = Broker::start().await;
+        let client = broker.client().await;
+        assert_eq!(
+            client.metadata().await.expect("metadata").metadata_version,
+            None
+        );
+
+        client
+            .transport
+            .admin
+            .update_features(
+                vec![FeatureUpdateKey::upgrade(MetadataVersion::FEATURE, 19)],
+                UpdateFeaturesOptions::default(),
+            )
+            .await
+            .expect("update features");
+
+        assert_eq!(
+            client.metadata().await.expect("metadata").metadata_version,
+            Some(MetadataVersion(19))
+        );
     }
 
     #[tokio::test]

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use foldhash::{HashMap, HashMapExt};
 
 use crate::kafka::group::{GroupMember, GroupOffset, GroupState};
-use crate::kafka::metadata::Watermarks;
+use crate::kafka::metadata::{MetadataVersion, Watermarks};
 use crate::kafka::topic_config::{CleanupPolicy, topic_config_values};
 
 use super::lane::LaneHealth;
@@ -128,6 +128,7 @@ pub struct SubjectVersion {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClusterHealthView {
     pub cluster: String,
+    pub metadata_version: Option<MetadataVersion>,
     pub topology: LaneHealth,
     pub watermarks: LaneHealth,
     pub offsets: LaneHealth,

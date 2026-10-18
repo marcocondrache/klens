@@ -29,7 +29,12 @@ export type LaneHealth = { updatedAt: string | null, checkedAt: string | null, l
  */
 healthy: boolean, };
 
-export type ClusterHealth = { cluster: string, ready: boolean, topology: LaneHealth, watermarks: LaneHealth, offsets: LaneHealth, configs: LaneHealth, subjects: LaneHealth, logDirs: LaneHealth, acls: LaneHealth, quotas: LaneHealth, scramUsers: LaneHealth, topicCount: number, partitionCount: number, groupCount: number, brokerCount: number, subjectCount: number, underReplicatedPartitions: number, offlinePartitions: number, };
+export type ClusterHealth = { cluster: string, ready: boolean, 
+/**
+ * The release that introduced the cluster's `metadata.version`, such as
+ * `3.7-IV4`. Absent on a ZooKeeper cluster.
+ */
+kafkaVersion: string | null, topology: LaneHealth, watermarks: LaneHealth, offsets: LaneHealth, configs: LaneHealth, subjects: LaneHealth, logDirs: LaneHealth, acls: LaneHealth, quotas: LaneHealth, scramUsers: LaneHealth, topicCount: number, partitionCount: number, groupCount: number, brokerCount: number, subjectCount: number, underReplicatedPartitions: number, offlinePartitions: number, };
 
 export type CleanupPolicy = "DELETE" | "COMPACT" | "COMPACT_DELETE";
 

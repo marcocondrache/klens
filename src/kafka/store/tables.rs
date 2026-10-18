@@ -4,7 +4,7 @@ use std::sync::Arc;
 use foldhash::{HashMap, HashMapExt, HashSet};
 
 use crate::kafka::group::{CommittedOffset, GroupMember, GroupSnapshot, GroupState};
-use crate::kafka::metadata::{MetadataSnapshot, PartitionMetadata, Watermarks};
+use crate::kafka::metadata::{MetadataSnapshot, MetadataVersion, PartitionMetadata, Watermarks};
 use crate::kafka::registry::{SchemaCompatibility, SchemaSubject, SchemaType};
 use crate::kafka::storage::LogDir;
 use crate::kafka::topic_config::ConfigEntry;
@@ -109,6 +109,7 @@ impl GroupInfo {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Topology {
     pub cluster_id: Option<String>,
+    pub metadata_version: Option<MetadataVersion>,
     pub controller: Option<i32>,
     pub brokers: BTreeMap<i32, BrokerInfo>,
     pub topics: BTreeMap<Arc<str>, TopicInfo>,
@@ -179,6 +180,7 @@ impl Topology {
 
         Self {
             cluster_id: meta.cluster_id,
+            metadata_version: meta.metadata_version,
             controller: None,
             brokers,
             topics,

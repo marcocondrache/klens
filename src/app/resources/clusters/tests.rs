@@ -18,6 +18,7 @@ async fn cluster_health_reports_per_lane_freshness_and_counts() {
 
     assert_eq!(health["cluster"], "local");
     assert_eq!(health["ready"], true);
+    assert_eq!(health["kafkaVersion"], "3.7-IV4");
     assert_eq!(health["topology"]["healthy"], true);
     assert_eq!(health["logDirs"]["healthy"], true);
     health["topology"]["updatedAt"]

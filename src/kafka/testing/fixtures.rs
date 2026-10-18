@@ -7,7 +7,7 @@ use crate::kafka::group::{
     CommittedOffset, GroupMember, GroupSnapshot, GroupState, MemberAssignment,
 };
 use crate::kafka::metadata::{
-    BrokerMetadata, MetadataSnapshot, PartitionMetadata, TopicMetadata, Watermarks,
+    BrokerMetadata, MetadataSnapshot, MetadataVersion, PartitionMetadata, TopicMetadata, Watermarks,
 };
 use crate::kafka::registry::{SchemaCompatibility, SchemaSubject, SchemaType};
 use crate::kafka::storage::{LogDir, ReplicaLog};
@@ -47,6 +47,7 @@ pub fn topic(name: &str, partitions: Vec<PartitionMetadata>) -> TopicMetadata {
 pub fn metadata(topics: Vec<TopicMetadata>) -> MetadataSnapshot {
     MetadataSnapshot {
         cluster_id: Some("test-cluster".into()),
+        metadata_version: Some(MetadataVersion(19)),
         brokers: vec![BrokerMetadata {
             id: 1,
             host: "localhost".into(),

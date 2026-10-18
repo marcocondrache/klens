@@ -259,6 +259,9 @@ impl ClusterStore {
 
         ClusterHealthView {
             cluster: self.identity.name.clone(),
+            metadata_version: topology
+                .as_ref()
+                .and_then(|topology| topology.metadata_version),
             topology: self.topology.health(),
             watermarks: self.watermarks.health(),
             offsets: self.offsets.health(),
