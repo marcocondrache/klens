@@ -296,7 +296,7 @@ impl RecordParams {
         let order = self.order.unwrap_or(RecordOrder::Newest).into();
         Ok(domain::RecordQuery {
             timestamps: domain::TimestampRange::new(self.from, self.to)?,
-            filter: self.contains.as_deref().and_then(CompiledFilter::contains),
+            filter: filter(self.contains.as_deref())?,
             cursor: match self.cursor.as_deref().map(str::trim) {
                 None | Some("") => None,
                 Some(cursor) => {
@@ -318,7 +318,7 @@ impl ExportParams {
     pub(crate) fn into_query(self, topic: String) -> Result<domain::RecordQuery, QueryError> {
         Ok(domain::RecordQuery {
             timestamps: domain::TimestampRange::new(self.from, self.to)?,
-            filter: self.contains.as_deref().and_then(CompiledFilter::contains),
+            filter: filter(self.contains.as_deref())?,
             cursor: None,
             topic,
             partitions: self.partition,
@@ -331,6 +331,13 @@ impl ExportParams {
 
 fn default_record_limit() -> i32 {
     50
+}
+
+fn filter(contains: Option<&str>) -> Result<Option<CompiledFilter>, QueryError> {
+    Ok(contains
+        .map(CompiledFilter::contains)
+        .transpose()?
+        .flatten())
 }
 
 #[derive(Debug, Clone, Serialize, TS)]
@@ -408,12 +415,12 @@ pub(crate) struct TailParams {
 }
 
 impl TailParams {
-    pub(crate) fn into_query(self, topic: String) -> TailQuery {
-        TailQuery {
-            filter: self.contains.as_deref().and_then(CompiledFilter::contains),
+    pub(crate) fn into_query(self, topic: String) -> Result<TailQuery, QueryError> {
+        Ok(TailQuery {
+            filter: filter(self.contains.as_deref())?,
             topic,
             partitions: self.partition,
             schema_id: self.schema_id,
-        }
+        })
     }
 }

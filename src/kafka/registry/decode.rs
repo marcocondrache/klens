@@ -435,6 +435,7 @@ mod tests {
     fn matches_orderid(value: &DecodedPayload) -> bool {
         CompiledFilter::contains("orderid")
             .unwrap()
+            .unwrap()
             .on_payload(None, Some(value))
     }
 

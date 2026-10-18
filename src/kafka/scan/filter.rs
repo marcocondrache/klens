@@ -2,6 +2,7 @@ use std::fmt::{Debug, Formatter};
 
 use aho_corasick::AhoCorasick;
 
+use crate::kafka::error::QueryError;
 use crate::kafka::scan::payload::DecodedPayload;
 
 #[derive(Debug, Clone, Copy)]
@@ -41,19 +42,20 @@ impl Debug for CompiledFilter {
 }
 
 impl CompiledFilter {
-    pub fn contains(needle: &str) -> Option<Self> {
+    pub fn contains(needle: &str) -> Result<Option<Self>, QueryError> {
         let trimmed = needle.trim();
         if trimmed.is_empty() {
-            return None;
+            return Ok(None);
         }
+
         let matcher = AhoCorasick::builder()
             .ascii_case_insensitive(true)
             .build([trimmed])
-            .expect("a single needle fits the automaton");
-        Some(CompiledFilter {
+            .map_err(|_| QueryError::FilterTooLong)?;
+        Ok(Some(CompiledFilter {
             needle: trimmed.to_owned(),
             matcher,
-        })
+        }))
     }
 
     fn matches_bytes(&self, bytes: &[u8]) -> bool {
@@ -93,7 +95,7 @@ mod tests {
 
     #[test]
     fn empty_source_is_no_filter() {
-        assert_eq!(CompiledFilter::contains("  "), None);
+        assert_eq!(CompiledFilter::contains("  "), Ok(None));
     }
 
     #[test]
@@ -110,7 +112,7 @@ mod tests {
 
     #[test]
     fn a_substring_filter_answers_from_unframed_bytes() {
-        let filter = CompiledFilter::contains("FAILED").expect("needle");
+        let filter = CompiledFilter::contains("FAILED").unwrap().expect("needle");
         let unframed = |bytes: &'static [u8]| RawField {
             bytes,
             framed: false,
@@ -133,7 +135,7 @@ mod tests {
 
     #[test]
     fn a_framed_payload_defers_the_substring_match_to_the_decode() {
-        let filter = CompiledFilter::contains("failed").expect("needle");
+        let filter = CompiledFilter::contains("failed").unwrap().expect("needle");
         let framed = RawField {
             bytes: b"\0\0\0\0\x07binary",
             framed: true,
@@ -164,7 +166,7 @@ mod tests {
 
     #[test]
     fn a_substring_filter_matches_decoded_text() {
-        let filter = CompiledFilter::contains("FAILED").expect("needle");
+        let filter = CompiledFilter::contains("FAILED").unwrap().expect("needle");
         let decoded = DecodedPayload::decoded(
             Bytes::from_static(b"\0\0\0\0\x07"),
             serde_json::json!({"status": "failed"}),

@@ -534,7 +534,7 @@ mod tests {
         RecordQuery {
             topic: "orders.created".into(),
             partitions: vec![0],
-            filter: CompiledFilter::contains("hit"),
+            filter: CompiledFilter::contains("hit").unwrap(),
             timestamps: TimestampRange::UNBOUNDED,
             limit: 2,
             order: RecordOrder::Oldest,
@@ -1083,7 +1083,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn a_filter_matches_the_token_the_page_shows() {
-        let page = card_page(&cards(), CompiledFilter::contains("kx:")).await;
+        let page = card_page(&cards(), CompiledFilter::contains("kx:").unwrap()).await;
 
         assert_eq!(offsets(&page), vec![0, 1, 2, 3]);
     }
@@ -1133,14 +1133,14 @@ mod tests {
         let session = text_orders();
 
         assert!(
-            card_page(&session, CompiledFilter::contains("4111"))
+            card_page(&session, CompiledFilter::contains("4111").unwrap())
                 .await
                 .records
                 .is_empty(),
             "raw bytes must stay out of reach of a filter on a rewritten topic"
         );
         assert_eq!(
-            card_page(&session, CompiledFilter::contains("on order 2"))
+            card_page(&session, CompiledFilter::contains("on order 2").unwrap())
                 .await
                 .records
                 .len(),
