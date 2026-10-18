@@ -1,5 +1,5 @@
 import { createColumnHelper } from "@tanstack/react-table";
-import { Trash2Icon } from "lucide-react";
+import { TrashIcon } from "lucide-react";
 
 import type { DataTableFeatures } from "@/components/data-table/features";
 import { IconButton } from "@/components/icon-button";
@@ -68,7 +68,7 @@ export function aclDeleteColumn(onDelete: (acl: Acl) => void) {
           reveal
           onClick={() => onDelete(acl)}
         >
-          <Trash2Icon />
+          <TrashIcon />
         </IconButton>
       );
     },

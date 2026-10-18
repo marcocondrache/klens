@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { createColumnHelper } from "@tanstack/react-table";
-import { PencilIcon, Trash2Icon } from "lucide-react";
+import { PencilIcon, TrashIcon } from "lucide-react";
 
 import type { DataTableFeatures } from "@/components/data-table/features";
 import { IconButton } from "@/components/icon-button";
@@ -99,7 +99,7 @@ export function quotaActionColumn({
             onRemove(row.original);
           }}
         >
-          <Trash2Icon />
+          <TrashIcon />
         </IconButton>
       </>
     ),

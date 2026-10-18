@@ -1,5 +1,5 @@
 import { getRouteApi } from "@tanstack/react-router";
-import { ListXIcon, Trash2Icon } from "lucide-react";
+import { ListXIcon, TrashIcon } from "lucide-react";
 
 import { DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -135,7 +135,7 @@ export function GroupPage() {
                         variant="destructive"
                         onClick={() => dialogs.show("delete")}
                       >
-                        <Trash2Icon />
+                        <TrashIcon />
                         Delete group
                       </DropdownMenuItem>
                     </>

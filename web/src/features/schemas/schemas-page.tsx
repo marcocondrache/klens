@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import { getRouteApi } from "@tanstack/react-router";
-import { FilePlusIcon, PlusIcon, ShieldCheckIcon, Trash2Icon } from "lucide-react";
+import { FilePlusIcon, PlusIcon, ShieldCheckIcon, TrashIcon } from "lucide-react";
 
 import {
   Sheet,
@@ -318,7 +318,7 @@ function SubjectActions({
       {canDelete && version != null ? (
         <>
           <IconButton label="Delete this version" onClick={() => dialogs.show("delete")}>
-            <Trash2Icon />
+            <TrashIcon />
           </IconButton>
           <DeleteSchemaDialog
             cluster={cluster}

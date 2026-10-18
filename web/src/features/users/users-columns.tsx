@@ -1,5 +1,5 @@
 import { createColumnHelper } from "@tanstack/react-table";
-import { KeyRoundIcon, Trash2Icon } from "lucide-react";
+import { KeyRoundIcon, TrashIcon } from "lucide-react";
 
 import type { DataTableFeatures } from "@/components/data-table/features";
 import { IconButton } from "@/components/icon-button";
@@ -77,7 +77,7 @@ export function userActionColumn({
               onDelete(row.original);
             }}
           >
-            <Trash2Icon />
+            <TrashIcon />
           </IconButton>
         ) : null}
       </>

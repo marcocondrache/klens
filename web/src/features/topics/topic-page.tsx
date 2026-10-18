@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { AlertTriangleIcon, ListXIcon, PlusIcon, SendIcon, Trash2Icon } from "lucide-react";
+import { ListXIcon, PlusIcon, SendIcon, TrashIcon, TriangleAlertIcon } from "lucide-react";
 import { getRouteApi } from "@tanstack/react-router";
 
 import { Button } from "@/components/ui/button";
@@ -133,7 +133,7 @@ export function TopicPage() {
               <Pill>RF {detail.replicationFactor}</Pill>
               {detail.underReplicated ? (
                 <Pill tone="warn">
-                  <AlertTriangleIcon />
+                  <TriangleAlertIcon />
                   under-replicated
                 </Pill>
               ) : null}
@@ -180,7 +180,7 @@ export function TopicPage() {
                         variant="destructive"
                         onClick={() => dialogs.show("delete")}
                       >
-                        <Trash2Icon />
+                        <TrashIcon />
                         Delete topic
                       </DropdownMenuItem>
                     </>
