@@ -53,7 +53,7 @@ A value that did not decode has no fields to walk, so klens masks it whole. To s
 
 ## Hide whole keys, values, or headers
 
-For topics that klens shows as raw text, hide the whole key or value, and mask headers by name.
+For topics that klens shows as raw text, hide the whole key or value, and mask headers by name. A header name matches in any case, so `x-user-id` also masks `X-User-Id`.
 
 ```yaml title="config.yaml"
         rules:

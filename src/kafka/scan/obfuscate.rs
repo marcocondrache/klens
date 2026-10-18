@@ -116,14 +116,18 @@ impl TopicObfuscator {
         }
 
         for (name, value) in headers.iter_mut() {
-            if self
-                .headers
-                .iter()
-                .any(|masked| masked.as_ref() == name.as_str())
-            {
+            if self.masks_header(name) {
                 *value = Some(Bytes::from_static(MASK.as_bytes()));
             }
         }
+    }
+
+    /// Kafka header names are case-sensitive bytes, but producers disagree on
+    /// case, and a rule that missed `X-User-Id` would leak it.
+    fn masks_header(&self, name: &str) -> bool {
+        self.headers
+            .iter()
+            .any(|masked| masked.eq_ignore_ascii_case(name))
     }
 
     pub fn apply(&self, field: Field, slot: &mut Option<DecodedPayload>) {
@@ -606,8 +610,19 @@ mod tests {
         assert_eq!(value_of(&key).expect("key")["customer"]["email"], "***");
     }
 
+    fn header(name: &str, value: &'static str) -> (String, Option<Bytes>) {
+        (name.to_owned(), Some(Bytes::from_static(value.as_bytes())))
+    }
+
+    fn header_values(headers: &[(String, Option<Bytes>)]) -> Vec<&[u8]> {
+        headers
+            .iter()
+            .map(|(_, value)| value.as_deref().unwrap_or_default())
+            .collect()
+    }
+
     #[test]
-    fn configured_headers_are_masked_by_name() {
+    fn configured_headers_are_masked_by_name_in_any_case() {
         let obfuscator = policy(
             "
             secret: {value: 0123456789abcdef0123456789abcdef}
@@ -620,13 +635,16 @@ mod tests {
         .expect("rule");
 
         let mut headers = vec![
-            ("x-user-id".to_owned(), Some(Bytes::from_static(b"ada"))),
-            ("source".to_owned(), Some(Bytes::from_static(b"checkout"))),
+            header("x-user-id", "ada"),
+            header("X-User-Id", "grace"),
+            header("source", "checkout"),
         ];
         obfuscator.mask_headers(&mut headers);
 
-        assert_eq!(headers[0].1.as_deref(), Some(b"***".as_slice()));
-        assert_eq!(headers[1].1.as_deref(), Some(b"checkout".as_slice()));
+        assert_eq!(
+            header_values(&headers),
+            [b"***".as_slice(), b"***", b"checkout"]
+        );
     }
 
     #[test]
