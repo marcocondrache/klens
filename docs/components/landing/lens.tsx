@@ -11,10 +11,6 @@ const CELL_PX = 3;
 const TURN_MS = 16_000;
 const RESTING_ANGLE = (-3 * Math.PI) / 4;
 
-/**
- * The klens mark, a ring of radius 21 and stroke 14 in a 64 unit box, drawn as a
- * lit torus and dithered with a 4x4 Bayer matrix. The light circles the ring.
- */
 class DitheredRing {
   readonly cols: number;
   readonly rows: number;
@@ -86,7 +82,6 @@ function normalize(x: number, y: number, z: number): [number, number, number] {
   return [x / length, y / length, z / length];
 }
 
-/** Resolves a CSS color, such as a custom property in oklch, to a pixel in ImageData byte order. */
 function resolvePixel(probe: CanvasRenderingContext2D, cssColor: string): number {
   probe.fillStyle = cssColor;
   probe.fillRect(0, 0, 1, 1);
@@ -95,10 +90,6 @@ function resolvePixel(probe: CanvasRenderingContext2D, cssColor: string): number
   return new Uint32Array(Uint8ClampedArray.of(r, g, b, a).buffer)[0];
 }
 
-/**
- * The canvas holds one pixel per dither cell, and CSS scales it up without smoothing. Visibility
- * only starts and stops the loop, so scrolling never rebuilds the ring.
- */
 export function Lens({ className, ...props }: ComponentProps<'canvas'>) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const angleRef = useRef(RESTING_ANGLE);

@@ -38,7 +38,6 @@ export function ActionsMenu({
   );
 }
 
-/** One open dialog at a time, for actions a menu opens. */
 export function useOpenDialog<Name extends string>() {
   const [open, setOpen] = useState<Name | null>(null);
 

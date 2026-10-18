@@ -15,7 +15,6 @@ export function clusterTone(health: ClusterHealth | null | undefined): Tone {
   return lanes(health).every((lane) => lane.healthy) ? "ok" : "warn";
 }
 
-/** True until topology commits once, unless that first poll already failed. */
 export function isFirstCatalogPending(health: ClusterHealth | null | undefined): boolean {
   return health != null && !health.ready && health.topology.lastError == null;
 }
@@ -38,7 +37,6 @@ export function laneCaption(lane: LaneHealth | undefined, now?: number): string 
   return parts.length > 0 ? parts.join(" · ") : undefined;
 }
 
-/** String href for catalog search hits. Encodes each tail segment. */
 export function clusterPath(cluster: string, ...segments: string[]) {
   const tail = segments.filter(Boolean).map(encodeURIComponent).join("/");
   return tail ? `/cluster/${cluster}/${tail}` : `/cluster/${cluster}`;

@@ -5,7 +5,6 @@ import { PauseIcon, PlayIcon } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { setReaderPaused, useReaderPaused, useReducedMotion } from './motion';
 
-/** Lets the reader stop the page's endless animations, which the system setting stops on its own. */
 export function MotionToggle({ className }: { className?: string }) {
   const paused = useReaderPaused();
   const reducedMotion = useReducedMotion();

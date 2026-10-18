@@ -12,7 +12,6 @@ import type { SubjectRow } from "@/lib/api/types";
 
 const SUBJECT = "subject";
 
-/** `onDeleted` gets the version left on screen, or null once the subject is gone. */
 export function DeleteSchemaDialog({
   cluster,
   subject,

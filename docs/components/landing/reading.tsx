@@ -79,7 +79,6 @@ const groups = [
 
 const maxLag = Math.max(...groups.map((group) => group.lag));
 
-/** Narrow cards keep only the state dot, so the group names stay readable. */
 const lagColumns =
   'grid grid-cols-[minmax(0,1fr)_auto_4.5rem] gap-x-3 px-4 @sm:grid-cols-[minmax(0,1fr)_4.5rem_6rem] @md:grid-cols-[minmax(0,1fr)_4.5rem_4rem_7rem]';
 

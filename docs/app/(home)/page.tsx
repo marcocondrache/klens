@@ -349,7 +349,6 @@ function DocsLink({
   );
 }
 
-/** One showcase tab, with the copy beside a demo set on a dithered landscape. */
 function Feature({
   title,
   href,

@@ -25,7 +25,6 @@ export function apiErrorMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
-/** API calls use `/api` in dev and in the embedded UI. */
 export function apiPath(path: string): string {
   return `/api${path}`;
 }
@@ -52,7 +51,6 @@ export function clusterPathname(cluster: string, ...rest: string[]): string {
   return ["/clusters", encodeURIComponent(cluster), ...rest].join("/");
 }
 
-/** Encode each path segment and keep `/`, so a catch-all route sees the real id. */
 export function resourceId(id: string): string {
   return id
     .split("/")
@@ -83,9 +81,7 @@ async function fail(response: Response): Promise<never> {
     const body = (await response.json()) as { error?: unknown; code?: unknown };
     if (typeof body.error === "string" && body.error) message = body.error;
     if (typeof body.code === "string") code = body.code;
-  } catch {
-    // A non-JSON body still becomes an ApiError from the status line.
-  }
+  } catch {}
   throw new ApiError(message, response.status, code);
 }
 
@@ -142,7 +138,6 @@ async function send(
   return response;
 }
 
-/** A missing topic or group is 404. Pages treat that as an empty detail. */
 export async function getOrNull<T>(
   path: string,
   query?: Record<string, QueryValue>,

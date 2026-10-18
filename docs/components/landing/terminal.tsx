@@ -36,7 +36,6 @@ export function Terminal({
   const [played, setPlayed] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  // The page renders the finished terminal, and the typing plays once when it first scrolls in.
   if (inView && motionAllowed && !played) {
     setPlayed(true);
     setTick(0);
@@ -87,7 +86,6 @@ export function Terminal({
 
       <pre className="sr-only">{transcript}</pre>
 
-      {/* The untyped text stays in place but invisible, so the terminal never changes height. */}
       <pre
         aria-hidden
         className="min-h-[280px] overflow-x-auto p-3 pb-28 font-mono text-[11px] leading-6 text-fd-secondary-foreground/90 sm:p-4 sm:pb-28 sm:text-[13px]"

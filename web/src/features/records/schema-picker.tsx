@@ -28,7 +28,6 @@ function subjectOption(row: SubjectRow): SchemaOption {
   return { id: row.id, label: row.subject, detail: `${row.type} · v${row.latestVersion}` };
 }
 
-/** `raw` adds an option that picks no schema. */
 export function SchemaPicker({
   cluster,
   preferred,

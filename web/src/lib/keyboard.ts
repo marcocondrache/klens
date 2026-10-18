@@ -1,4 +1,3 @@
-/** First visible page search input marked with `data-search-hotkey`. */
 export function findSearchHotkeyTarget(): HTMLInputElement | null {
   const candidates = document.querySelectorAll<HTMLInputElement>("[data-search-hotkey]");
 

@@ -72,10 +72,6 @@ function textDraft(text: string | null): PayloadDraft {
   return { encoding: text === null ? "NULL" : "TEXT", data: text ?? "", schemaId: null };
 }
 
-/**
- * Without `onProduced` the sheet stays open and says where Kafka stored the record.
- * A null `trigger` hides the button but keeps an open sheet and its edits.
- */
 export function ProduceRecordSheet({
   cluster,
   topic,
@@ -308,7 +304,6 @@ function ProduceRecordForm({
   );
 }
 
-/** Undefined until a schema payload names its schema. */
 function payload({ encoding, data, schemaId }: PayloadDraft): RecordPayload | null | undefined {
   if (encoding === "NULL") return null;
   if (encoding !== "SCHEMA") return { encoding, data };

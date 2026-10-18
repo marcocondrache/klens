@@ -9,7 +9,6 @@ export interface FilterOption {
 }
 
 export interface FilterField<TData, TId extends string = string> {
-  /** Doubles as the URL search key. */
   id: TId;
   label: string;
   plural: string;
@@ -62,7 +61,6 @@ export function setFilterValues(rules: FilterRule[], id: string, values: string[
   return rules.map((rule) => (rule === existing ? { ...rule, values } : rule));
 }
 
-/** Option counts for `field`, honouring every other active filter. */
 export function facetCounts<TData>(
   rows: TData[],
   fields: ReadonlyArray<FilterField<TData>>,

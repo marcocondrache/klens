@@ -21,7 +21,6 @@ const TRANSPARENT = '#00000000';
 const BRAND = ['--color-brand'];
 const GLOWS = ['--color-brand-glow', '--color-amber-glow'];
 
-/** Dithered bands of the brand color that fold into each other. */
 export function Warp({ className }: { className?: string }) {
   const ref = useRef<HTMLDivElement>(null);
   const animate = useAnimate(ref);
@@ -45,7 +44,6 @@ export function Warp({ className }: { className?: string }) {
   );
 }
 
-/** A grainy gradient of the brand and amber glows that fades out to transparent. */
 export function Grain({
   shape,
   className,

@@ -22,7 +22,6 @@ export function oneOf<const T extends readonly [string, ...string[]]>(values: T)
   return z.catch(z.optional(z.enum(values)), undefined);
 }
 
-// Filter params: `a,b` matches any of the values, `!a,b` none of them.
 export function filter(allowed: readonly string[]) {
   const param = z.pipe(
     z.string(),

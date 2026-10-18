@@ -7,18 +7,12 @@ import night from './scenery/night.png';
 import ridges from './scenery/ridges.png';
 import sea from './scenery/sea.png';
 
-/** Landscapes dithered into a few tones, stored at one pixel per dither cell. */
 const scenes = { dunes, mist, night, ridges, sea } satisfies Record<string, StaticImageData>;
 
 export type Scene = keyof typeof scenes;
 
-/** Matches the cell of the shaders and the lens, so every dithered surface shares one grain. */
 const CELL_PX = 3;
 
-/**
- * A panel on a dithered landscape. The image scales by a whole number of pixels per cell and
- * crops to the panel, so the dither stays crisp at any panel size.
- */
 export function Scenery({
   scene,
   position = 'center',

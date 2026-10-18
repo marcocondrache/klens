@@ -7,10 +7,6 @@ import { cn } from "@/lib/utils";
 export const REVEAL_ON_ROW =
   "opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100 data-popup-open:opacity-100";
 
-/**
- * Ghost icon button with a tooltip. `label` is the accessible name and the default tooltip.
- * `reveal` hides it until its table row is hovered.
- */
 export function IconButton({
   label,
   tooltip = label,

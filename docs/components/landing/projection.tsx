@@ -11,7 +11,6 @@ import { cn } from '@/lib/cn';
 import { LogoMark } from '@/components/logo';
 import { InView } from './in-view';
 
-/** The ingest lanes, with their default periods. Pulses move faster on shorter periods. */
 const lanes = [
   { name: 'topology', period: '10s', pulse: '3.2s' },
   { name: 'watermarks', period: '3s · 30s', pulse: '1.8s' },
@@ -114,7 +113,6 @@ export function Projection() {
   );
 }
 
-/** Below lg the diagram stacks, so an arrow carries the flow down between the columns. */
 function StackedArrow() {
   return <ArrowDownIcon className="mx-auto -my-3 size-4 text-fd-muted-foreground lg:hidden" />;
 }
