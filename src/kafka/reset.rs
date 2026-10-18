@@ -141,9 +141,51 @@ async fn offsets_at(
 
 #[cfg(test)]
 mod tests {
+    use krafka::error::{ErrorCode, KrafkaError};
+    use krafka::testing::{ApiKey, Control};
+
     use super::*;
+    use crate::kafka::client::testing::Broker;
 
     const MARKS: Watermarks = Watermarks { low: 10, high: 50 };
+
+    fn assert_denied(planned: &Result<Vec<OffsetMove>, KafkaError>) {
+        assert!(
+            matches!(
+                planned,
+                Err(KafkaError::Krafka(KrafkaError::Broker {
+                    code: ErrorCode::TopicAuthorizationFailed,
+                    ..
+                }))
+            ),
+            "{planned:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_reset_by_time_fails_when_kafka_fails_the_time_lookup() {
+        let broker = Broker::orders(4).await;
+        let client = broker.client().await;
+        broker.clear_requests();
+        // The two watermark lookups come first.
+        broker.on(ApiKey::ListOffsets, |request| {
+            if request.api_call_index < 2 {
+                Control::Pass
+            } else {
+                Control::Error(ErrorCode::TopicAuthorizationFailed)
+            }
+        });
+
+        let planned = plan_reset(
+            &client,
+            "billing",
+            Some(("orders", &[0])),
+            ResetTarget::Timestamp(0),
+        )
+        .await;
+
+        assert_denied(&planned);
+    }
 
     #[test]
     fn the_log_ends_place_at_the_watermarks() {

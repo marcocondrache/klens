@@ -59,7 +59,7 @@ use convert::{committed_from_krafka, produce_refusal, refused};
 use groups::{
     ACTIVE_GROUP_STATES, LISTED_GROUP_TYPES, snapshots_from_descriptions, split_empty_groups,
 };
-use offsets::{known_offsets, partition_time_offsets};
+use offsets::{known_offsets, time_offsets};
 use pool::ScanPool;
 use scan::ReaderConfig;
 use tail::TailLease;
@@ -294,9 +294,7 @@ impl ClusterSession for KafkaClient {
             .admin
             .list_offsets(specs, ListOffsetsOptions::default())
             .await?;
-        Ok(partition_time_offsets(
-            listed.into_iter().map(listed_offset_parts),
-        ))
+        time_offsets(listed.into_iter().map(listed_offset_parts))
     }
 
     async fn topic_configs(
@@ -792,8 +790,8 @@ fn offset_specs<Topic: AsRef<str>>(
 
 fn listed_offset_parts(
     (partition, listed): (TopicPartition, Result<ListedOffset, KrafkaError>),
-) -> (String, i32, i64) {
-    let offset = listed.map_or(-1, |listed| listed.offset);
+) -> (String, i32, Result<i64, KrafkaError>) {
+    let offset = listed.map(|listed| listed.offset);
     (partition.topic, partition.partition, offset)
 }
 
@@ -1037,6 +1035,23 @@ mod tests {
             .await
             .expect("time offsets");
         assert_eq!(offsets.get(&0), Some(&Some(0)));
+    }
+
+    #[tokio::test]
+    async fn a_time_past_the_last_record_has_no_offset() {
+        let broker = Broker::orders(1).await;
+        let mut tuning = Tuning::default();
+        // krafka retries its own "no offset" answer until the deadline.
+        tuning.kafka.request_timeout = Duration::from_millis(500);
+        tuning.kafka.connect_timeout = Duration::from_millis(500);
+        let client = broker.client_with(&tuning).await;
+
+        let offsets = client
+            .offsets_for_times("orders", &[0], i64::MAX / 2)
+            .await
+            .expect("time offsets");
+
+        assert_eq!(offsets, HashMap::from_iter([(0, None)]));
     }
 
     #[tokio::test]
