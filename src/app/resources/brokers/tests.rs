@@ -44,6 +44,18 @@ async fn broker_rows_carry_the_log_dirs_on_each_node() {
 }
 
 #[tokio::test]
+async fn broker_rows_carry_the_rack_each_node_reports() {
+    let cluster = FakeCluster::local().with_broker(2);
+    cluster.set_rack(2, "eu-west-1b");
+    let app = TestApp::over(cluster).await;
+
+    let brokers = app.get("/clusters/local/brokers").await.ok();
+
+    assert_eq!(brokers[0]["rack"], Value::Null);
+    assert_eq!(brokers[1]["rack"], "eu-west-1b");
+}
+
+#[tokio::test]
 async fn a_broker_has_no_size_before_the_log_dirs_lane_reports() {
     let cluster = FakeCluster::local();
     cluster.fail(Api::LogDirs, "log dirs unavailable");
