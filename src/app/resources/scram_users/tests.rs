@@ -73,7 +73,6 @@ async fn users_are_empty_and_pending_until_the_lane_commits() {
     assert!(users["sourceHealth"]["updatedAt"].is_null());
 }
 
-/// Keep the rig: dropping it stops the lane a write settles on.
 async fn writable() -> (TestApp, Rig) {
     let app = TestApp::of([FakeCluster::local()])
         .writable(&["local"])

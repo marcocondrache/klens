@@ -139,7 +139,6 @@ impl RecordPayload {
             Self::Text { data } => Ok(Bytes::from(data)),
             Self::Base64 { data } => {
                 let mut data = data.into_bytes();
-                // Pasted base64 is often wrapped at 76 columns.
                 data.retain(|byte| !byte.is_ascii_whitespace());
                 STANDARD
                     .decode(data)
@@ -316,7 +315,6 @@ impl RecordParams {
 }
 
 impl ExportParams {
-    /// Asks for the largest page the limits allow.
     pub(crate) fn into_query(self, topic: String) -> Result<domain::RecordQuery, QueryError> {
         Ok(domain::RecordQuery {
             timestamps: domain::TimestampRange::new(self.from, self.to)?,
