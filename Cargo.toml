@@ -28,7 +28,7 @@ axum = { version = "0.8", default-features = false, features = [
 ] }
 axum-extra = { version = "0.12", default-features = false, features = ["query"] }
 axum-login = "0.18"
-tower-sessions = { version = "0.14", features = ["memory-store", "signed"] }
+tower-sessions = { version = "0.14", default-features = false, features = ["signed"] }
 futures = "0.3"
 jiff = { version = "0.2", default-features = false, features = ["serde", "std"] }
 krafka = "0.27.1"
