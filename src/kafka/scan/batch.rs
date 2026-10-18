@@ -102,6 +102,11 @@ impl<T> RecordBatch<T> {
         }
     }
 
+    pub fn take(&mut self) -> Self {
+        let empty = Self::new(self.limit, self.order, self.direction);
+        std::mem::replace(self, empty)
+    }
+
     pub fn into_sorted(self) -> Vec<T> {
         self.entries
             .into_sorted_vec()

@@ -17,7 +17,7 @@ use super::RecordPage;
 use super::batch::{RecordBatch, SortKey};
 use super::cursor::CursorDirection;
 use super::obfuscate::TopicObfuscator;
-use super::pipeline::{Kept, RecordPipeline, Screen};
+use super::pipeline::{Kept, RecordPipeline};
 use super::plan::{PartitionWindow, advance_cursor, plan_windows, rewind_cursor, walk_start};
 use super::query::{RecordOrder, RecordQuery};
 
@@ -169,9 +169,9 @@ impl ScanSession {
         scan: &mut WindowScan,
         batch: &mut RecordBatch<Kept>,
     ) {
-        let mut candidates = Vec::new();
+        let mut ranked = Vec::with_capacity(polled.len());
 
-        for mut raw in polled {
+        for raw in polled {
             let partition = raw.partition;
             if !scan.remaining.contains_key(&partition) {
                 continue;
@@ -185,21 +185,10 @@ impl ScanSession {
                 continue;
             }
 
-            let sort = scan.rank(&raw);
-            if !batch.admits(&sort) {
-                continue;
-            }
-
-            match self.pipeline.screen(&mut raw) {
-                None => continue,
-                Some(Screen::Deferred) => batch.push(sort, Kept::Pending(raw)),
-                Some(Screen::NeedsPayload) => candidates.push((sort, raw)),
-            }
+            ranked.push((scan.rank(&raw), raw));
         }
 
-        for (sort, prepared) in self.pipeline.decode_and_filter(candidates).await {
-            batch.push(sort, prepared);
-        }
+        self.pipeline.admit(batch, ranked).await;
     }
 
     /// An empty poll alone is not EOF: it can also follow a retriable broker
@@ -426,7 +415,7 @@ pub async fn fetch_page<S: ClusterSession + ?Sized>(
             .sort_key()
             .cmp_for_order(&right.raw().sort_key(), order)
     });
-    let kept = scan.pipeline.decode_deferred(kept).await;
+    let records = scan.pipeline.render(kept, &query.topic).await;
     let obfuscated = scan.obfuscated();
     scan.close().await;
 
@@ -440,10 +429,7 @@ pub async fn fetch_page<S: ClusterSession + ?Sized>(
     };
 
     Ok(RecordPage {
-        records: kept
-            .into_iter()
-            .map(|record| record.into_record(&query.topic))
-            .collect(),
+        records,
         complete,
         obfuscated,
         next_cursor: next_cursor.map(|cursor| cursor.to_string()),
@@ -483,16 +469,13 @@ pub async fn scan_once<S: ClusterSession + ?Sized>(
     let mut scan = ScanSession::open(session, &query, order, deadline, windows).await?;
     let mut batch = RecordBatch::new(limit, order, CursorDirection::Forward);
     let outcome = scan.run(windows, &mut batch, deadline).await;
-    let page = scan.pipeline.decode_deferred(batch.into_sorted()).await;
+    let records = scan.pipeline.render(batch.into_sorted(), topic).await;
     scan.close().await;
 
     if !outcome?.complete {
         return Err(KafkaError::Timeout);
     }
-    Ok(page
-        .into_iter()
-        .map(|record| record.into_record(topic))
-        .collect())
+    Ok(records)
 }
 
 #[cfg(test)]
