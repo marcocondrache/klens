@@ -110,14 +110,19 @@ impl TopicObfuscator {
             || self.value.is_some()
     }
 
-    pub fn mask_headers(&self, headers: &mut [(String, Option<Bytes>)]) {
-        if self.headers.is_empty() {
+    pub fn obfuscate_headers(&self, headers: &mut [(String, Option<Bytes>)]) {
+        if self.headers.is_empty() && self.patterns.is_empty() {
             return;
         }
 
         for (name, value) in headers.iter_mut() {
             if self.masks_header(name) {
                 *value = Some(Bytes::from_static(MASK.as_bytes()));
+            } else if let Some(rewritten) = value
+                .as_deref()
+                .and_then(|bytes| self.rewrite_header(bytes))
+            {
+                *value = Some(rewritten);
             }
         }
     }
@@ -128,6 +133,17 @@ impl TopicObfuscator {
         self.headers
             .iter()
             .any(|masked| masked.eq_ignore_ascii_case(name))
+    }
+
+    fn rewrite_header(&self, value: &[u8]) -> Option<Bytes> {
+        if self.patterns.is_empty() {
+            return None;
+        }
+
+        match self.rewrite_text(&String::from_utf8_lossy(value)) {
+            Cow::Owned(rewritten) => Some(Bytes::from(rewritten)),
+            Cow::Borrowed(_) => None,
+        }
     }
 
     pub fn apply(&self, field: Field, slot: &mut Option<DecodedPayload>) {
@@ -173,16 +189,19 @@ impl TopicObfuscator {
             return;
         }
 
-        let mut text = Cow::Borrowed(payload.text());
+        if let Cow::Owned(text) = self.rewrite_text(payload.text()) {
+            payload.redact_with(text);
+        }
+    }
+
+    fn rewrite_text<'a>(&self, text: &'a str) -> Cow<'a, str> {
+        let mut text = Cow::Borrowed(text);
         for pattern in &self.patterns {
             if let Cow::Owned(rewritten) = pattern.apply(text.as_ref()) {
                 text = Cow::Owned(rewritten);
             }
         }
-
-        if let Cow::Owned(text) = text {
-            payload.redact_with(text);
-        }
+        text
     }
 }
 
@@ -639,12 +658,25 @@ mod tests {
             header("X-User-Id", "grace"),
             header("source", "checkout"),
         ];
-        obfuscator.mask_headers(&mut headers);
+        obfuscator.obfuscate_headers(&mut headers);
 
         assert_eq!(
             header_values(&headers),
             [b"***".as_slice(), b"***", b"checkout"]
         );
+    }
+
+    #[test]
+    fn patterns_rewrite_header_values_too() {
+        let obfuscator = logs().for_topic("app.logs").expect("rule");
+
+        let mut headers = vec![
+            header("x-actor", "ada@example.com via sso"),
+            header("trace", "t-1"),
+        ];
+        obfuscator.obfuscate_headers(&mut headers);
+
+        assert_eq!(header_values(&headers), [b"*** via sso".as_slice(), b"t-1"]);
     }
 
     #[test]

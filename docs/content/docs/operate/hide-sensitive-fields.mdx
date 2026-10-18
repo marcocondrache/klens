@@ -65,7 +65,7 @@ For topics that klens shows as raw text, hide the whole key or value, and mask h
 
 ## Hide text that matches a pattern
 
-For topics without a schema, pattern rules replace each match of a regular expression in the text of the key and the value. `drop` deletes the match.
+For topics without a schema, pattern rules replace each match of a regular expression in the text of the key, the value, and each header value. `drop` deletes the match.
 
 ```yaml title="config.yaml"
         rules:
