@@ -99,7 +99,7 @@ export function RecordTable<TData extends RowData>({
     fetchNextPage();
   }, [fetchNextPage, isFetchNextPageError, isFetchingNextPage, nearEnd]);
 
-  function skeletonRows(count: number, firstRow: number) {
+  function skeletonRows(count: number) {
     return Array.from({ length: count }, (_, index) => (
       <TableRow
         key={index}
@@ -112,7 +112,7 @@ export function RecordTable<TData extends RowData>({
 
           return (
             <TableCell key={column.id} className={cn("h-10 py-2", CELL)}>
-              <SkeletonBar row={firstRow + index} column={columnIndex} align={meta?.align} />
+              <SkeletonBar row={index} column={columnIndex} align={meta?.align} />
             </TableCell>
           );
         })}
@@ -156,7 +156,7 @@ export function RecordTable<TData extends RowData>({
             </TableHeader>
             <TableBody>
               {loading || awaitingFirstPage ? (
-                skeletonRows(SKELETON_ROWS, 0)
+                skeletonRows(SKELETON_ROWS)
               ) : rows.length === 0 ? (
                 <TableRow className="hover:bg-transparent">
                   <TableCell colSpan={leafColumns.length} className="p-0">
@@ -215,7 +215,7 @@ export function RecordTable<TData extends RowData>({
                       </TableCell>
                     </TableRow>
                   ) : showLoader ? (
-                    skeletonRows(LOADER_ROWS, rows.length)
+                    skeletonRows(LOADER_ROWS)
                   ) : null}
                 </>
               )}
