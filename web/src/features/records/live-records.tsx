@@ -123,7 +123,6 @@ export function LiveRecords({
         <>
           <IconButton
             label={tail.paused ? "Resume live tail" : "Pause live tail"}
-            tooltip={tail.paused ? "Resume" : "Pause"}
             variant="outline"
             size="icon"
             onClick={tail.paused ? tail.resume : tail.pause}
@@ -132,7 +131,6 @@ export function LiveRecords({
           </IconButton>
           <IconButton
             label="Clear records"
-            tooltip="Clear"
             variant="outline"
             size="icon"
             disabled={tail.records.length === 0 && tail.skipped === 0}
