@@ -1,12 +1,15 @@
 use axum::Router;
+use axum::body::Body;
+use axum::extract::State;
 use axum::http::{Request, Response, header};
+use axum::middleware;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use futures::FutureExt;
-use futures::future::try_join_all;
+use futures::future::{BoxFuture, Shared, try_join_all};
+use futures::{FutureExt, StreamExt};
 use tokio::net::TcpListener;
 use tower::ServiceBuilder;
 use tower_http::catch_panic::CatchPanicLayer;
@@ -30,9 +33,19 @@ pub struct Listener {
     pub bind: SocketAddr,
 }
 
+/// Resolves once klens starts to shut down.
+type Shutdown = Shared<BoxFuture<'static, ()>>;
+
 /// Binds every listener before it serves any, so a taken port stops startup
 /// instead of leaving klens half up.
 pub async fn serve(listeners: impl IntoIterator<Item = Listener>) -> Result<()> {
+    serve_until(listeners, shutdown_signal()).await
+}
+
+async fn serve_until(
+    listeners: impl IntoIterator<Item = Listener>,
+    shutdown: impl Future<Output = ()> + Send + 'static,
+) -> Result<()> {
     let mut bound = Vec::new();
     for Listener { router, bind } in listeners {
         let listener = TcpListener::bind(bind)
@@ -41,10 +54,10 @@ pub async fn serve(listeners: impl IntoIterator<Item = Listener>) -> Result<()> 
         bound.push((listener, router, bind));
     }
 
-    let shutdown = shutdown_signal().shared();
+    let shutdown = shutdown.boxed().shared();
     let servers = bound.into_iter().map(|(listener, router, bind)| {
         tracing::info!(bind = %bind, "listening");
-        axum::serve(listener, with_layers(router))
+        axum::serve(listener, with_layers(router, shutdown.clone()))
             .with_graceful_shutdown(shutdown.clone())
             .into_future()
     });
@@ -55,7 +68,7 @@ pub async fn serve(listeners: impl IntoIterator<Item = Listener>) -> Result<()> 
     Ok(())
 }
 
-fn with_layers(router: Router) -> Router {
+fn with_layers(router: Router, shutdown: Shutdown) -> Router {
     let sensitive_headers: Arc<[_]> = Arc::new([
         header::AUTHORIZATION,
         header::COOKIE,
@@ -86,9 +99,32 @@ fn with_layers(router: Router) -> Router {
         .layer(SetSensitiveResponseHeadersLayer::from_shared(
             sensitive_headers,
         ))
-        .layer(CompressionLayer::new());
+        .layer(CompressionLayer::new())
+        .layer(middleware::map_response_with_state(
+            shutdown,
+            end_on_shutdown,
+        ));
 
     router.layer(layers)
+}
+
+/// Graceful shutdown waits for every open response, and an event stream never
+/// ends on its own. Ending it lets shutdown finish, and the client reconnects.
+async fn end_on_shutdown(
+    State(shutdown): State<Shutdown>,
+    response: Response<Body>,
+) -> Response<Body> {
+    let is_event_stream = response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .is_some_and(|value| value.as_bytes().starts_with(b"text/event-stream"));
+    if !is_event_stream {
+        return response;
+    }
+
+    let (parts, body) = response.into_parts();
+    let body = body.into_data_stream().take_until(shutdown);
+    Response::from_parts(parts, Body::from_stream(body))
 }
 
 async fn shutdown_signal() {
@@ -125,9 +161,13 @@ mod tests {
     use axum::response::sse::{Event, Sse};
     use axum::routing::get;
     use futures::stream;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpStream;
+    use tokio::sync::oneshot;
+    use tokio::time::timeout;
 
     use super::*;
-    use crate::testing::{LogCapture, exchange};
+    use crate::testing::{LogCapture, connect, exchange, free_address};
 
     #[tokio::test]
     async fn the_request_log_has_the_path_but_not_the_query() {
@@ -267,5 +307,75 @@ mod tests {
 
         assert_eq!(served, None);
         assert!(contains(&body, &format!("data: {PAGE}\n\n")));
+    }
+
+    async fn open(stream: &mut TcpStream, path: &str, first: &str) {
+        stream
+            .write_all(
+                format!("GET {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+                    .as_bytes(),
+            )
+            .await
+            .expect("write request");
+
+        let mut received = Vec::new();
+        while !contains(&received, first) {
+            let mut chunk = [0; 1024];
+            let read = stream.read(&mut chunk).await.expect("read response");
+            assert_ne!(read, 0, "{path} closed before it sent {first}");
+            received.extend_from_slice(&chunk[..read]);
+        }
+    }
+
+    async fn rest(mut stream: TcpStream) -> Vec<u8> {
+        let mut rest = Vec::new();
+        timeout(Duration::from_secs(5), stream.read_to_end(&mut rest))
+            .await
+            .expect("the response ends")
+            .expect("read response");
+        rest
+    }
+
+    #[tokio::test]
+    async fn shutdown_ends_event_streams_and_lets_other_responses_finish() {
+        let (release, released) = oneshot::channel::<()>();
+        let released = released.shared();
+        let router = Router::new()
+            .route(
+                "/events",
+                get(|| async {
+                    let first = Event::default().data("open");
+                    Sse::new(stream::iter([Ok::<_, Infallible>(first)]).chain(stream::pending()))
+                }),
+            )
+            .route(
+                "/export",
+                get(move || {
+                    let released = released.clone();
+                    async move {
+                        let tail = async move {
+                            let _ = released.await;
+                            Ok::<_, Infallible>("tail")
+                        };
+                        Body::from_stream(stream::iter([Ok("head")]).chain(stream::once(tail)))
+                    }
+                }),
+            );
+        let (stop, stopped) = oneshot::channel::<()>();
+        let bind = free_address();
+        let server = tokio::spawn(serve_until([Listener { router, bind }], async {
+            let _ = stopped.await;
+        }));
+
+        let mut events = connect(bind, &server).await;
+        open(&mut events, "/events", "data: open").await;
+        let mut export = connect(bind, &server).await;
+        open(&mut export, "/export", "head").await;
+        stop.send(()).expect("server is running");
+
+        rest(events).await;
+        release.send(()).expect("export is waiting");
+        assert!(contains(&rest(export).await, "tail"));
+        server.await.expect("server task").expect("server stops");
     }
 }
