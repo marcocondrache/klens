@@ -377,4 +377,89 @@ mod tests {
         );
         assert!(!second.has_more());
     }
+
+    async fn follow(
+        session: &FakeCluster,
+        store: &ClusterStore,
+        mut query: RecordQuery,
+        link: fn(&RecordPage) -> Option<&str>,
+    ) -> Vec<RecordPage> {
+        let mut pages = Vec::new();
+        loop {
+            let page = page(session, store, query.clone()).await.unwrap();
+            let cursor = link(&page).map(|token| RecordCursor::parse(token).unwrap());
+            pages.push(page);
+
+            let Some(cursor) = cursor else {
+                return pages;
+            };
+            query.cursor = Some(cursor);
+        }
+    }
+
+    fn returned(pages: &[RecordPage]) -> Vec<(i32, i64)> {
+        let mut seen: Vec<_> = pages
+            .iter()
+            .flat_map(|page| &page.records)
+            .map(|record| (record.partition, record.offset))
+            .collect();
+        seen.sort_unstable();
+        seen
+    }
+
+    #[tokio::test]
+    async fn paging_returns_every_record_once_when_timestamps_do_not_rise_with_offset() {
+        let shuffled = |partition: i32, count: i64, step: i64| {
+            (0..count).map(move |offset| {
+                browse_record(partition, offset, 1_700_000_000_000 + offset * step % count)
+            })
+        };
+        let session = FakeCluster::local()
+            .with_records(shuffled(0, 12, 7).chain(shuffled(1, 6, 5)).collect());
+        let store = ingested_store();
+        let every: Vec<(i32, i64)> = (0..12)
+            .map(|offset| (0, offset))
+            .chain((0..6).map(|offset| (1, offset)))
+            .collect();
+
+        for order in [RecordOrder::Newest, RecordOrder::Oldest] {
+            let mut query = browse_query();
+            query.limit = 2;
+            query.order = order;
+
+            let forward = follow(&session, &store, query.clone(), |page| {
+                page.next_cursor.as_deref()
+            })
+            .await;
+            let last = forward.last().unwrap().clone();
+            query.cursor = Some(RecordCursor::parse(last.prev_cursor.as_deref().unwrap()).unwrap());
+            let mut backward =
+                follow(&session, &store, query, |page| page.prev_cursor.as_deref()).await;
+            backward.push(last);
+
+            assert_eq!(returned(&forward), every, "{order:?} forward");
+            assert_eq!(returned(&backward), every, "{order:?} backward");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_record_is_found_by_offset_when_the_next_one_is_older() {
+        let session = FakeCluster::local().with_records(vec![
+            browse_record(0, 0, 3_000),
+            browse_record(0, 1, 1_000),
+            browse_record(0, 2, 2_000),
+        ]);
+        let at = RecordAt {
+            topic: "orders.created".into(),
+            partition: 0,
+            offset: 0,
+            schema_id: None,
+        };
+
+        let found = read_record(&session, &ingested_store(), at, RecordLimits::default())
+            .await
+            .unwrap();
+
+        assert_eq!(found.record.offset, 0);
+    }
 }
