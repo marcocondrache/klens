@@ -17,7 +17,8 @@ export const TOPIC_FILTERS: Array<FilterField<TopicRow, TopicFilter>> = [
       { value: "delete", label: "delete" },
       { value: "compact", label: "compact" },
     ],
-    accessor: (topic) => formatCleanupPolicy(topic.cleanupPolicy).split(","),
+    accessor: (topic) =>
+      topic.cleanupPolicy === null ? [] : formatCleanupPolicy(topic.cleanupPolicy).split(","),
   },
   {
     id: "health",

@@ -39,7 +39,8 @@ pub struct TopicRow {
     pub rate: f64,
     /// Null until the topic's configs report a `retention.ms` value.
     pub retention_ms: Option<i64>,
-    pub cleanup_policy: CleanupPolicy,
+    /// Null until the topic's configs report a `cleanup.policy` value.
+    pub cleanup_policy: Option<CleanupPolicy>,
     pub group_count: i32,
     pub under_replicated: bool,
 }
@@ -56,7 +57,7 @@ impl From<projections::TopicRow> for TopicRow {
             size_bytes: row.size_bytes,
             rate: row.rate,
             retention_ms: row.retention_ms,
-            cleanup_policy: row.cleanup_policy.into(),
+            cleanup_policy: row.cleanup_policy.map(Into::into),
             group_count: row.group_count,
             under_replicated: row.under_replicated,
         }
@@ -112,7 +113,8 @@ pub struct TopicDetail {
     pub rate: f64,
     /// Null until the topic's configs report a `retention.ms` value.
     pub retention_ms: Option<i64>,
-    pub cleanup_policy: CleanupPolicy,
+    /// Null until the topic's configs report a `cleanup.policy` value.
+    pub cleanup_policy: Option<CleanupPolicy>,
     pub group_count: i32,
     pub under_replicated: bool,
 }
@@ -130,7 +132,7 @@ impl From<projections::TopicDetail> for TopicDetail {
             disk_bytes: detail.disk_bytes,
             rate: detail.rate,
             retention_ms: detail.retention_ms,
-            cleanup_policy: detail.cleanup_policy.into(),
+            cleanup_policy: detail.cleanup_policy.map(Into::into),
             group_count: detail.group_count,
             under_replicated: detail.under_replicated,
         }

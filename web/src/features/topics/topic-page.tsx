@@ -129,7 +129,9 @@ export function TopicPage() {
           detail ? (
             <>
               {detail.internal ? <Pill>internal</Pill> : null}
-              <Pill>{formatCleanupPolicy(detail.cleanupPolicy)}</Pill>
+              {detail.cleanupPolicy ? (
+                <Pill>{formatCleanupPolicy(detail.cleanupPolicy)}</Pill>
+              ) : null}
               <Pill>RF {detail.replicationFactor}</Pill>
               {detail.underReplicated ? (
                 <Pill tone="warn">

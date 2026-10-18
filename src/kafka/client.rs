@@ -316,16 +316,20 @@ impl ClusterSession for KafkaClient {
             )
             .await?;
 
-        Ok(described
+        described
             .into_iter()
-            .filter_map(|(resource, configs)| {
-                let configs = configs.ok()?;
-                Some((
+            .filter_map(|(resource, configs)| match configs {
+                Ok(configs) => Some(Ok((
                     resource.name,
                     configs.into_iter().map(ConfigEntry::from).collect(),
-                ))
+                ))),
+                // A broker that refuses one topic, such as for a missing
+                // DescribeConfigs ACL, leaves that topic unknown rather than
+                // failing every other topic's configs.
+                Err(KrafkaError::Broker { .. }) => None,
+                Err(error) => Some(Err(error.into())),
             })
-            .collect())
+            .collect()
     }
 
     async fn broker_configs(&self, broker_id: i32) -> Result<Vec<ConfigEntry>, KafkaError> {
@@ -937,6 +941,10 @@ mod tests {
 
         for (api, error) in [
             ("ListGroups", client.groups().await.err()),
+            (
+                "DescribeConfigs",
+                client.topic_configs(&["orders"]).await.err(),
+            ),
             ("DescribeLogDirs", client.log_dirs().await.err()),
             ("DescribeClientQuotas", client.client_quotas().await.err()),
             (

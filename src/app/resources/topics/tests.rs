@@ -110,7 +110,7 @@ async fn topic_detail_flags_under_replication_per_partition() {
 }
 
 #[tokio::test]
-async fn a_topic_has_no_retention_until_the_configs_lane_reads_it() {
+async fn a_topic_has_no_retention_or_cleanup_policy_until_the_configs_lane_reads_it() {
     let cluster = FakeCluster::local();
     cluster.fail(Api::TopicConfigs, "describe configs timed out");
     let app = TestApp::over(cluster).await;
@@ -118,7 +118,7 @@ async fn a_topic_has_no_retention_until_the_configs_lane_reads_it() {
     let topic = app.get("/clusters/local/topics/orders.created").await.ok();
 
     assert_eq!(topic["retentionMs"], Value::Null);
-    assert_eq!(topic["cleanupPolicy"], "DELETE");
+    assert_eq!(topic["cleanupPolicy"], Value::Null);
 }
 
 #[tokio::test]

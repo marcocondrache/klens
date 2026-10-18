@@ -23,7 +23,7 @@ pub struct TopicRow {
     pub size_bytes: Option<i64>,
     pub rate: f64,
     pub retention_ms: Option<i64>,
-    pub cleanup_policy: CleanupPolicy,
+    pub cleanup_policy: Option<CleanupPolicy>,
     pub group_count: i32,
     pub under_replicated: bool,
 }
@@ -65,7 +65,7 @@ pub struct TopicDetail {
     pub disk_bytes: Option<i64>,
     pub rate: f64,
     pub retention_ms: Option<i64>,
-    pub cleanup_policy: CleanupPolicy,
+    pub cleanup_policy: Option<CleanupPolicy>,
     pub group_count: i32,
     pub under_replicated: bool,
 }
@@ -545,7 +545,10 @@ mod tests {
 
         let row = TopicRow::project(name, topic, lanes(&topology), 0.0);
         assert_eq!(row.retained_messages, 0);
-        assert_eq!(row.cleanup_policy, CleanupPolicy::Delete);
+        assert_eq!(
+            row.cleanup_policy, None,
+            "the cleanup policy is unknown before the configs lane fetches this topic"
+        );
         assert_eq!(
             row.retention_ms, None,
             "retention is unknown before the configs lane fetches this topic"
@@ -555,6 +558,7 @@ mod tests {
         assert_eq!(detail.partitions.len(), 2);
         assert_eq!(detail.partitions[0].high_watermark, 0);
         assert_eq!(detail.retention_ms, None);
+        assert_eq!(detail.cleanup_policy, None);
     }
 
     #[test]
@@ -580,7 +584,7 @@ mod tests {
             },
             0.0,
         );
-        assert_eq!(row.cleanup_policy, CleanupPolicy::Compact);
+        assert_eq!(row.cleanup_policy, Some(CleanupPolicy::Compact));
         assert_eq!(row.retention_ms, Some(604_800_000));
 
         let detail = TopicDetail::project(
@@ -592,7 +596,7 @@ mod tests {
             },
             4.0,
         );
-        assert_eq!(detail.cleanup_policy, CleanupPolicy::Compact);
+        assert_eq!(detail.cleanup_policy, Some(CleanupPolicy::Compact));
         assert_eq!(detail.retention_ms, Some(604_800_000));
         assert_eq!(detail.rate, 4.0);
     }
