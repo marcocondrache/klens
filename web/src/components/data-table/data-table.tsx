@@ -20,8 +20,8 @@ import {
 import { cn } from "@/lib/utils";
 
 import { DataTableColumnHeader } from "./column-header";
+import { columnWidth, minTableWidth } from "./column-width";
 import { features, type DataTableFeatures } from "./features";
-import { GROW_CELL, growWidths } from "./grow";
 import { tablePlaceholder } from "./placeholder";
 import { CLICKABLE_ROW, clickableRowProps } from "./row-interaction";
 import { SkeletonBar, skeletonRowStyle } from "./skeleton-bar";
@@ -90,10 +90,14 @@ export function DataTable<TData extends RowData>({
       {toolbar ? <div className="flex shrink-0 flex-wrap items-center gap-2">{toolbar}</div> : null}
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border">
         <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto">
-          <Table aria-busy={loading || undefined}>
+          <Table
+            aria-busy={loading || undefined}
+            className="table-fixed"
+            style={{ minWidth: minTableWidth(leafColumns) }}
+          >
             <colgroup>
-              {growWidths(leafColumns).map(({ id, width }) => (
-                <col key={id} style={{ width }} />
+              {leafColumns.map((column) => (
+                <col key={column.id} style={{ width: columnWidth(column) }} />
               ))}
             </colgroup>
             <TableHeader className="[&_tr]:border-b-0!">
@@ -172,7 +176,6 @@ export function DataTable<TData extends RowData>({
                               className={cn(
                                 "h-10 overflow-hidden px-3 py-2 text-ellipsis first:pl-4 last:pr-4",
                                 meta?.align === "right" && "text-right numeric",
-                                meta?.grow && GROW_CELL,
                                 meta?.className,
                               )}
                             >

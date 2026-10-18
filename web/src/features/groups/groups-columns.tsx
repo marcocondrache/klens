@@ -14,11 +14,13 @@ export const groupColumns = columnHelper.columns([
   }),
   columnHelper.accessor("state", {
     header: "State",
+    size: 176,
     cell: ({ getValue }) => <GroupStateBadge state={getValue()} />,
   }),
   columnHelper.accessor("memberCount", {
     id: "members",
     header: "Members",
+    size: 96,
     meta: { align: "right" },
     cell: ({ getValue }) => getValue(),
   }),
@@ -42,6 +44,7 @@ export const groupColumns = columnHelper.columns([
   columnHelper.accessor((group) => group.totalLag ?? -1, {
     id: "lag",
     header: "Lag",
+    size: 120,
     meta: { align: "right" },
     cell: ({ row }) => <LagValue lag={row.original.totalLag} complete={row.original.lagComplete} />,
   }),

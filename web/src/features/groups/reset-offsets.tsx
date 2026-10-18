@@ -323,11 +323,13 @@ const planColumns = planColumnHelper.columns([
   }),
   planColumnHelper.accessor("partition", {
     header: "Partition",
+    size: 96,
     meta: { align: "right" },
   }),
   planColumnHelper.accessor((move) => move.currentOffset ?? -1, {
     id: "committed",
     header: "Committed",
+    size: 112,
     meta: { align: "right" },
     cell: ({ row }) => (
       <span className="text-muted-foreground">
@@ -337,12 +339,14 @@ const planColumns = planColumnHelper.columns([
   }),
   planColumnHelper.accessor("newOffset", {
     header: "New",
+    size: 112,
     meta: { align: "right" },
     cell: ({ getValue }) => formatNumber(getValue()),
   }),
   planColumnHelper.accessor((move) => move.endOffset - move.newOffset, {
     id: "lag",
     header: "Lag after",
+    size: 112,
     meta: { align: "right" },
     cell: ({ getValue }) => (
       <span className="text-muted-foreground">{formatNumber(getValue())}</span>

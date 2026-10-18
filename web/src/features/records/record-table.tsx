@@ -2,8 +2,8 @@ import { useEffect, useRef, type ReactNode } from "react";
 import { useTable, type ColumnDef, type RowData } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
 
+import { columnWidth, minTableWidth } from "@/components/data-table/column-width";
 import { features, type DataTableFeatures } from "@/components/data-table/features";
-import { GROW_CELL, growWidths } from "@/components/data-table/grow";
 import { tablePlaceholder } from "@/components/data-table/placeholder";
 import { CLICKABLE_ROW, clickableRowProps } from "@/components/data-table/row-interaction";
 import { SkeletonBar, skeletonRowStyle } from "@/components/data-table/skeleton-bar";
@@ -111,7 +111,7 @@ export function RecordTable<TData extends RowData>({
           const meta = column.columnDef.meta;
 
           return (
-            <TableCell key={column.id} className={cn("h-10 py-2", CELL, meta?.grow && GROW_CELL)}>
+            <TableCell key={column.id} className={cn("h-10 py-2", CELL)}>
               <SkeletonBar row={firstRow + index} column={columnIndex} align={meta?.align} />
             </TableCell>
           );
@@ -126,10 +126,14 @@ export function RecordTable<TData extends RowData>({
       <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border">
         {refreshing ? <RefreshBar className="absolute inset-x-0 top-0 z-20" /> : null}
         <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto">
-          <Table aria-busy={loading || refreshing || isFetchingNextPage || undefined}>
+          <Table
+            aria-busy={loading || refreshing || isFetchingNextPage || undefined}
+            className="table-fixed"
+            style={{ minWidth: minTableWidth(leafColumns) }}
+          >
             <colgroup>
-              {growWidths(leafColumns).map(({ id, width }) => (
-                <col key={id} style={{ width }} />
+              {leafColumns.map((column) => (
+                <col key={column.id} style={{ width: columnWidth(column) }} />
               ))}
             </colgroup>
             <TableHeader className="[&_tr]:border-b-0!">
@@ -185,10 +189,9 @@ export function RecordTable<TData extends RowData>({
                             <TableCell
                               key={cell.id}
                               className={cn(
-                                "py-2.5",
+                                "overflow-hidden py-2.5 text-ellipsis",
                                 CELL,
                                 meta?.align === "right" && "text-right numeric",
-                                meta?.grow && GROW_CELL,
                                 meta?.className,
                               )}
                             >

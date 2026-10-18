@@ -47,35 +47,41 @@ export const topicColumns = columnHelper.columns([
   columnHelper.accessor("partitionCount", {
     id: "partitions",
     header: "Parts",
+    size: 72,
     meta: { align: "right" },
     cell: ({ getValue }) => getValue(),
   }),
   columnHelper.accessor("replicationFactor", {
     id: "replication",
     header: "RF",
+    size: 56,
     meta: { align: "right" },
   }),
   columnHelper.accessor("retainedMessages", {
     id: "messages",
     header: "Messages",
+    size: 120,
     meta: { align: "right" },
     cell: ({ getValue }) => emptyMetric(getValue(), formatNumber(getValue())),
   }),
   columnHelper.accessor((topic) => topic.sizeBytes ?? -1, {
     id: "size",
     header: "Size",
+    size: 96,
     meta: { align: "right" },
     cell: ({ row }) => <SizeValue bytes={row.original.sizeBytes} />,
   }),
   columnHelper.accessor("rate", {
     id: "rate",
     header: "Msg/s",
+    size: 80,
     meta: { align: "right" },
     cell: ({ getValue }) => emptyMetric(getValue(), formatThroughput(getValue())),
   }),
   columnHelper.accessor((topic) => topic.retentionMs ?? Number.POSITIVE_INFINITY, {
     id: "retention",
     header: "Retention",
+    size: 96,
     meta: { align: "right" },
     cell: ({ row }) => {
       if (row.original.retentionMs === null) {
@@ -89,6 +95,7 @@ export const topicColumns = columnHelper.columns([
   columnHelper.accessor("cleanupPolicy", {
     id: "policy",
     header: "Policy",
+    size: 112,
     meta: { align: "right" },
     cell: ({ getValue }) => (
       <span className={isCompactCleanup(getValue()) ? "text-foreground" : "text-muted-foreground"}>
@@ -99,6 +106,7 @@ export const topicColumns = columnHelper.columns([
   columnHelper.accessor("groupCount", {
     id: "groups",
     header: "Groups",
+    size: 88,
     meta: { align: "right" },
     cell: ({ getValue }) => emptyMetric(getValue(), getValue()),
   }),

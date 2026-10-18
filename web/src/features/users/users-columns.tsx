@@ -18,6 +18,7 @@ function mechanismColumn(mechanism: ScramMechanism) {
   return columnHelper.accessor((user) => iterations(user, mechanism) ?? -1, {
     id: mechanism,
     header: MECHANISM_LABEL[mechanism],
+    size: 160,
     meta: { align: "right" },
     cell: ({ row }) => {
       const count = iterations(row.original, mechanism);
@@ -49,6 +50,7 @@ export function userActionColumn({
 }) {
   return columnHelper.display({
     id: "action",
+    size: 80,
     meta: { align: "right" },
     cell: ({ row }) => (
       <>

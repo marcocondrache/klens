@@ -12,6 +12,7 @@ const columnHelper = createColumnHelper<DataTableFeatures, Acl>();
 export const aclColumns = columnHelper.columns([
   columnHelper.accessor("resourceType", {
     header: "Resource",
+    size: 144,
     cell: ({ getValue }) => <Pill>{formatEnumLabel(getValue())}</Pill>,
   }),
   columnHelper.accessor("resourceName", {
@@ -21,6 +22,7 @@ export const aclColumns = columnHelper.columns([
   }),
   columnHelper.accessor("patternType", {
     header: "Pattern",
+    size: 96,
     cell: ({ getValue }) => (
       <span className="text-muted-foreground">{formatEnumLabel(getValue())}</span>
     ),
@@ -32,14 +34,17 @@ export const aclColumns = columnHelper.columns([
   }),
   columnHelper.accessor("host", {
     header: "Host",
+    size: 128,
     cell: ({ getValue }) => <span className="font-mono text-muted-foreground">{getValue()}</span>,
   }),
   columnHelper.accessor("operation", {
     header: "Operation",
+    size: 160,
     cell: ({ getValue }) => formatEnumLabel(getValue()),
   }),
   columnHelper.accessor("permission", {
     header: "Permission",
+    size: 112,
     cell: ({ getValue }) => (
       <StatusLabel tone={getValue() === "DENY" ? "error" : "ok"}>
         {formatEnumLabel(getValue())}
@@ -51,6 +56,7 @@ export const aclColumns = columnHelper.columns([
 export function aclDeleteColumn(onDelete: (acl: Acl) => void) {
   return columnHelper.display({
     id: "delete",
+    size: 56,
     meta: { align: "right" },
     cell: ({ row }) => {
       const acl = row.original;

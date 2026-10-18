@@ -15,6 +15,7 @@ export const memberColumns = columnHelper.columns([
   }),
   columnHelper.accessor("id", {
     header: "Member ID",
+    size: 320,
     cell: ({ row }) => (
       <span className="flex items-center gap-1">
         <span className="max-w-72 truncate font-mono text-muted-foreground">{row.original.id}</span>
@@ -24,6 +25,7 @@ export const memberColumns = columnHelper.columns([
   }),
   columnHelper.accessor("host", {
     header: "Host",
+    size: 144,
     cell: ({ getValue }) => <span className="font-mono text-muted-foreground">{getValue()}</span>,
   }),
   columnHelper.accessor("assignments", {
@@ -46,6 +48,7 @@ export const memberColumns = columnHelper.columns([
     {
       id: "partitions",
       header: "Partitions",
+      size: 112,
       meta: { align: "right" },
       cell: ({ getValue }) => getValue(),
     },
