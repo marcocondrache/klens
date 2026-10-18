@@ -5,7 +5,6 @@ use thiserror::Error;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MetadataSnapshot {
-    pub cluster_id: Option<String>,
     pub brokers: Vec<BrokerMetadata>,
     pub topics: Vec<TopicMetadata>,
 }

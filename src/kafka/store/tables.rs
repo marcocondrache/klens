@@ -110,7 +110,6 @@ impl GroupInfo {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Topology {
-    pub cluster_id: Option<String>,
     pub controller: Option<i32>,
     pub brokers: BTreeMap<i32, BrokerInfo>,
     pub topics: BTreeMap<Arc<str>, TopicInfo>,
@@ -180,7 +179,6 @@ impl Topology {
         }
 
         Self {
-            cluster_id: meta.cluster_id,
             controller: None,
             brokers,
             topics,

@@ -42,9 +42,8 @@ impl TopologyDelta {
             diff_maps(&previous.topics, &next.topics);
         let (added_groups, removed_groups, changed_groups) =
             diff_maps(&previous.groups, &next.groups);
-        let brokers_changed = previous.brokers != next.brokers
-            || previous.cluster_id != next.cluster_id
-            || previous.controller != next.controller;
+        let brokers_changed =
+            previous.brokers != next.brokers || previous.controller != next.controller;
 
         let delta = Self {
             added_topics,
