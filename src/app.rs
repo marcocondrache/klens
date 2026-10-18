@@ -3,8 +3,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::Router;
-use axum::http::StatusCode;
+use axum::http::{HeaderValue, StatusCode, header};
 use axum::middleware;
+use axum::response::Response;
 use governor::{DefaultDirectRateLimiter, Quota, RateLimiter};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
@@ -146,6 +147,19 @@ pub fn router(state: AppState, allowed_hosts: &[AllowedHost]) -> Router {
         .with_state(state)
         .merge(app)
         .layer(auth_layer)
+        .layer(middleware::map_response(refuse_framing))
+}
+
+/// Any page the browser opens could otherwise frame the UI and steer a click
+/// onto a write, and with `auth` off nothing else would stop it.
+async fn refuse_framing(mut response: Response) -> Response {
+    let headers = response.headers_mut();
+    headers.insert(
+        header::CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static("frame-ancestors 'none'"),
+    );
+    headers.insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
+    response
 }
 
 /// Serves `/mcp` alone, at `mcp.bind`, so the session cookie is never read or

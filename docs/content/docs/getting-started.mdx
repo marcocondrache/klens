@@ -33,16 +33,17 @@ First, we create a folder with two files.
      klens:
        image: ghcr.io/marcocondrache/klens:latest
        ports:
-         - "8080:8080"
+         - "127.0.0.1:8080:8080"
        volumes:
          - ./config.yaml:/config.yaml:ro
        depends_on:
          - kafka
    ```
 
-3. Create `config.yaml`. It names one cluster, `local`, and lets klens change it.
+3. Create `config.yaml`. It names one cluster, `local`, and lets klens change it. `bind` listens on every interface of the container, so the published port reaches klens.
 
    ```yaml title="config.yaml"
+   bind: 0.0.0.0:8080
    clusters:
      local:
        bootstrap_servers: [kafka:9092]
@@ -60,7 +61,7 @@ First, we create a folder with two files.
 The **Topics** page of the `local` cluster opens. It lists no topics yet, since **Show internal** is off. The dot next to `local` in the cluster switcher turns green once klens has read the cluster.
 
 <Callout type="warn">
-This setup has no sign-in, and `writable: true` lets anyone who reaches port 8080 change the cluster. Keep it on your own machine.
+This setup has no sign-in, and `writable: true` lets anyone who reaches port 8080 change the cluster. The compose file publishes the port on `127.0.0.1` alone. Keep it that way.
 </Callout>
 
 ## Create a topic

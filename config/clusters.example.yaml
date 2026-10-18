@@ -9,7 +9,10 @@
 # newline in a secret file is dropped.
 #
 # Durations are strings such as 250ms, 10s, or 1h 30m.
-bind: 0.0.0.0:8080
+# Without auth, klens listens on loopback alone by default. With auth, the
+# default is 0.0.0.0:8080. In a container, set 0.0.0.0:8080 so the published
+# port reaches klens.
+bind: 127.0.0.1:8080
 # Hosts klens answers while auth is off. Any other host gets 403, except on
 # /health and /ready. An entry without a port matches any port. List the name
 # people browse to, such as an ingress host.

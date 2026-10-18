@@ -34,7 +34,7 @@ A plain string where a secret belongs stops startup, and the error does not repe
 
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
-| `bind` | Socket address | `0.0.0.0:8080` | The address of the UI, `/api`, `/health`, and `/ready`. |
+| `bind` | Socket address | `127.0.0.1:8080`, or `0.0.0.0:8080` with `auth` | The address of the UI, `/api`, `/health`, and `/ready`. Without `auth`, the default keeps klens on the local machine. |
 | `allowed_hosts` | List of hosts | `[localhost, 127.0.0.1, "::1"]` | The hosts klens answers while `auth` is off. See [allowed hosts](#allowed_hosts). |
 | `log_level` | `off`, `error`, `warn`, `info`, `debug`, or `trace` | `info` | The level of the log klens writes to standard output. |
 | `clusters` | Map of [clusters](#clusters) | `{}` | The Kafka clusters, by name. The UI lists them in file order. |
