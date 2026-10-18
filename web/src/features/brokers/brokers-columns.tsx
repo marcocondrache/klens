@@ -13,7 +13,6 @@ const columnHelper = createColumnHelper<DataTableFeatures, BrokerRow>();
 export const brokerColumns = columnHelper.columns([
   columnHelper.accessor("id", {
     header: "ID",
-    meta: { width: "10rem" },
     cell: ({ row }) => {
       const broker = row.original;
 
@@ -38,6 +37,7 @@ export const brokerColumns = columnHelper.columns([
   }),
   columnHelper.accessor("host", {
     header: "Host",
+    meta: { grow: true },
     cell: ({ row }) => {
       const broker = row.original;
 
@@ -55,7 +55,6 @@ export const brokerColumns = columnHelper.columns([
   columnHelper.accessor((broker) => broker.rack ?? "", {
     id: "rack",
     header: "Rack",
-    meta: { width: "8rem" },
     cell: ({ row }) =>
       row.original.rack ? (
         <span className="font-mono text-muted-foreground">{row.original.rack}</span>
@@ -66,25 +65,25 @@ export const brokerColumns = columnHelper.columns([
   columnHelper.accessor("partitionCount", {
     id: "partitions",
     header: "Partitions",
-    meta: { align: "right", width: "7rem" },
+    meta: { align: "right" },
     cell: ({ getValue }) => formatNumber(getValue()),
   }),
   columnHelper.accessor("leaderCount", {
     id: "leaders",
     header: "Leaders",
-    meta: { align: "right", width: "6.5rem" },
+    meta: { align: "right" },
     cell: ({ getValue }) => formatNumber(getValue()),
   }),
   columnHelper.accessor((broker) => broker.sizeBytes ?? -1, {
     id: "size",
     header: "Size",
-    meta: { align: "right", width: "7rem" },
+    meta: { align: "right" },
     cell: ({ row }) => <SizeValue bytes={row.original.sizeBytes} />,
   }),
   columnHelper.accessor((broker) => fullestDir(broker.logDirs)?.used ?? -1, {
     id: "disk",
     header: "Disk used",
-    meta: { align: "right", width: "7rem" },
+    meta: { align: "right" },
     cell: ({ row }) => {
       if (row.original.logDirs.length === 0) {
         return <SizeValue bytes={null} />;

@@ -11,16 +11,17 @@ const groupColumnHelper = createColumnHelper<DataTableFeatures, TopicGroupRow>()
 export const partitionColumns = partitionColumnHelper.columns([
   partitionColumnHelper.accessor("id", {
     header: "Partition",
-    meta: { align: "right", width: "6rem" },
+    meta: { align: "right" },
     cell: ({ getValue }) => <span className="numeric">{getValue()}</span>,
   }),
   partitionColumnHelper.accessor("leader", {
     header: "Leader",
-    meta: { align: "right", width: "6rem" },
+    meta: { align: "right" },
     cell: ({ getValue }) => <span className="numeric">{getValue()}</span>,
   }),
   partitionColumnHelper.accessor("replicas", {
     header: "Replicas",
+    meta: { grow: true },
     cell: ({ row }) => (
       <span className="flex flex-wrap gap-1">
         {row.original.replicas.map((replica) => (
@@ -39,7 +40,7 @@ export const partitionColumns = partitionColumnHelper.columns([
   partitionColumnHelper.accessor((partition) => partition.isr.length, {
     id: "isr",
     header: "In sync",
-    meta: { align: "right", width: "6rem" },
+    meta: { align: "right" },
     cell: ({ row }) => (
       <span
         className={
@@ -55,25 +56,25 @@ export const partitionColumns = partitionColumnHelper.columns([
   partitionColumnHelper.accessor("lowWatermark", {
     id: "low",
     header: "Low offset",
-    meta: { align: "right", width: "9rem" },
+    meta: { align: "right" },
     cell: ({ getValue }) => formatNumber(getValue()),
   }),
   partitionColumnHelper.accessor("highWatermark", {
     id: "high",
     header: "High offset",
-    meta: { align: "right", width: "9rem" },
+    meta: { align: "right" },
     cell: ({ getValue }) => formatNumber(getValue()),
   }),
   partitionColumnHelper.accessor("retained", {
     id: "messages",
     header: "Messages",
-    meta: { align: "right", width: "9rem" },
+    meta: { align: "right" },
     cell: ({ getValue }) => formatNumber(getValue()),
   }),
   partitionColumnHelper.accessor((partition) => partition.sizeBytes ?? -1, {
     id: "size",
     header: "Size",
-    meta: { align: "right", width: "7rem" },
+    meta: { align: "right" },
     cell: ({ row }) => <SizeValue bytes={row.original.sizeBytes} />,
   }),
 ]);
@@ -81,23 +82,23 @@ export const partitionColumns = partitionColumnHelper.columns([
 export const topicGroupColumns = groupColumnHelper.columns([
   groupColumnHelper.accessor("id", {
     header: "Group",
+    meta: { grow: true },
     cell: ({ getValue }) => <span className="font-mono">{getValue()}</span>,
   }),
   groupColumnHelper.accessor("state", {
     header: "State",
-    meta: { width: "12rem" },
     cell: ({ getValue }) => <GroupStateBadge state={getValue()} />,
   }),
   groupColumnHelper.accessor("memberCount", {
     id: "members",
     header: "Members",
-    meta: { align: "right", width: "6rem" },
+    meta: { align: "right" },
     cell: ({ getValue }) => getValue(),
   }),
   groupColumnHelper.accessor((group) => group.lagOnTopic ?? -1, {
     id: "lag",
     header: "Lag on this topic",
-    meta: { align: "right", width: "9rem" },
+    meta: { align: "right" },
     cell: ({ row }) => <LagValue lag={row.original.lagOnTopic} />,
   }),
 ]);

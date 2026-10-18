@@ -26,6 +26,7 @@ const columnHelper = createColumnHelper<DataTableFeatures, ConfigEntry>();
 const columns = columnHelper.columns([
   columnHelper.accessor("name", {
     header: "Key",
+    meta: { grow: true },
     cell: ({ row }) => {
       const entry = row.original;
 
@@ -46,7 +47,7 @@ const columns = columnHelper.columns([
   }),
   columnHelper.accessor("value", {
     header: "Value",
-    meta: { className: "whitespace-normal" },
+    meta: { className: "whitespace-normal", grow: true },
     cell: ({ row }) => {
       const entry = row.original;
 
@@ -67,7 +68,7 @@ const columns = columnHelper.columns([
   }),
   columnHelper.accessor("source", {
     header: "Source",
-    meta: { align: "right", width: "9rem" },
+    meta: { align: "right" },
     cell: ({ getValue }) => {
       const source = getValue();
 
@@ -91,7 +92,7 @@ const columns = columnHelper.columns([
 function editColumn(onEdit: (entry: ConfigEntry) => void) {
   return columnHelper.display({
     id: "edit",
-    meta: { align: "right", width: "3.5rem" },
+    meta: { align: "right" },
     cell: ({ row }) =>
       row.original.readOnly ? null : (
         <IconButton

@@ -3,6 +3,7 @@ import { useTable, type ColumnDef, type RowData } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
 
 import { features, type DataTableFeatures } from "@/components/data-table/features";
+import { GROW_CELL, growWidths } from "@/components/data-table/grow";
 import { tablePlaceholder } from "@/components/data-table/placeholder";
 import { CLICKABLE_ROW, clickableRowProps } from "@/components/data-table/row-interaction";
 import { SkeletonBar, skeletonRowStyle } from "@/components/data-table/skeleton-bar";
@@ -110,7 +111,7 @@ export function RecordTable<TData extends RowData>({
           const meta = column.columnDef.meta;
 
           return (
-            <TableCell key={column.id} className={cn("h-10 py-2", CELL, meta?.className)}>
+            <TableCell key={column.id} className={cn("h-10 py-2", CELL, meta?.grow && GROW_CELL)}>
               <SkeletonBar row={firstRow + index} column={columnIndex} align={meta?.align} />
             </TableCell>
           );
@@ -126,6 +127,11 @@ export function RecordTable<TData extends RowData>({
         {refreshing ? <RefreshBar className="absolute inset-x-0 top-0 z-20" /> : null}
         <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto">
           <Table aria-busy={loading || refreshing || isFetchingNextPage || undefined}>
+            <colgroup>
+              {growWidths(leafColumns).map(({ id, width }) => (
+                <col key={id} style={{ width }} />
+              ))}
+            </colgroup>
             <TableHeader className="[&_tr]:border-b-0!">
               {table.getHeaderGroups().map((headerGroup) => (
                 <TableRow key={headerGroup.id}>
@@ -182,6 +188,7 @@ export function RecordTable<TData extends RowData>({
                                 "py-2.5",
                                 CELL,
                                 meta?.align === "right" && "text-right numeric",
+                                meta?.grow && GROW_CELL,
                                 meta?.className,
                               )}
                             >

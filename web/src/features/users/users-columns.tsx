@@ -18,7 +18,7 @@ function mechanismColumn(mechanism: ScramMechanism) {
   return columnHelper.accessor((user) => iterations(user, mechanism) ?? -1, {
     id: mechanism,
     header: MECHANISM_LABEL[mechanism],
-    meta: { align: "right", width: "10rem" },
+    meta: { align: "right" },
     cell: ({ row }) => {
       const count = iterations(row.original, mechanism);
       return count === undefined ? (
@@ -33,6 +33,7 @@ function mechanismColumn(mechanism: ScramMechanism) {
 export const userColumns = columnHelper.columns([
   columnHelper.accessor("name", {
     header: "User",
+    meta: { grow: true },
     cell: ({ getValue }) => <span className="font-mono">{getValue()}</span>,
   }),
   mechanismColumn("SHA256"),
@@ -48,7 +49,7 @@ export function userActionColumn({
 }) {
   return columnHelper.display({
     id: "action",
-    meta: { align: "right", width: "5rem" },
+    meta: { align: "right" },
     cell: ({ row }) => (
       <>
         {onSetPassword ? (

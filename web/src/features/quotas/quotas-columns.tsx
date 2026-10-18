@@ -60,7 +60,7 @@ function rateColumn(
   return columnHelper.accessor((quota) => pick(quota) ?? -1, {
     id,
     header: title,
-    meta: { align: "right", width: "8rem" },
+    meta: { align: "right" },
     cell: ({ row }) => render(pick(row.original)),
   });
 }
@@ -74,7 +74,7 @@ export function quotaActionColumn({
 }) {
   return columnHelper.display({
     id: "action",
-    meta: { align: "right", width: "5rem" },
+    meta: { align: "right" },
     cell: ({ row }) => (
       <>
         <IconButton
@@ -108,6 +108,7 @@ export const quotaColumns = columnHelper.columns([
   columnHelper.accessor(entityKey, {
     id: "entity",
     header: "Entity",
+    meta: { grow: true },
     cell: ({ row }) => <EntityCell parts={row.original.entity} />,
   }),
   rateColumn("produce", "Produce", (quota) => quota.producerByteRate, byteRate),

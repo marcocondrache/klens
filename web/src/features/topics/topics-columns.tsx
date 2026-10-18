@@ -26,6 +26,7 @@ const columnHelper = createColumnHelper<DataTableFeatures, TopicRow>();
 export const topicColumns = columnHelper.columns([
   columnHelper.accessor("name", {
     header: "Topic",
+    meta: { grow: true },
     cell: ({ row }) => {
       const topic = row.original;
 
@@ -46,36 +47,36 @@ export const topicColumns = columnHelper.columns([
   columnHelper.accessor("partitionCount", {
     id: "partitions",
     header: "Parts",
-    meta: { align: "right", width: "5rem" },
+    meta: { align: "right" },
     cell: ({ getValue }) => getValue(),
   }),
   columnHelper.accessor("replicationFactor", {
     id: "replication",
     header: "RF",
-    meta: { align: "right", width: "4rem" },
+    meta: { align: "right" },
   }),
   columnHelper.accessor("retainedMessages", {
     id: "messages",
     header: "Messages",
-    meta: { align: "right", width: "9rem" },
+    meta: { align: "right" },
     cell: ({ getValue }) => emptyMetric(getValue(), formatNumber(getValue())),
   }),
   columnHelper.accessor((topic) => topic.sizeBytes ?? -1, {
     id: "size",
     header: "Size",
-    meta: { align: "right", width: "7rem" },
+    meta: { align: "right" },
     cell: ({ row }) => <SizeValue bytes={row.original.sizeBytes} />,
   }),
   columnHelper.accessor("rate", {
     id: "rate",
     header: "Msg/s",
-    meta: { align: "right", width: "6rem" },
+    meta: { align: "right" },
     cell: ({ getValue }) => emptyMetric(getValue(), formatThroughput(getValue())),
   }),
   columnHelper.accessor((topic) => topic.retentionMs ?? Number.POSITIVE_INFINITY, {
     id: "retention",
     header: "Retention",
-    meta: { align: "right", width: "7rem" },
+    meta: { align: "right" },
     cell: ({ row }) => {
       if (row.original.retentionMs === null) {
         return <PendingValue label="Fetching topic configs" className="ml-auto block" />;
@@ -88,7 +89,7 @@ export const topicColumns = columnHelper.columns([
   columnHelper.accessor("cleanupPolicy", {
     id: "policy",
     header: "Policy",
-    meta: { align: "right", width: "8rem" },
+    meta: { align: "right" },
     cell: ({ getValue }) => (
       <span className={isCompactCleanup(getValue()) ? "text-foreground" : "text-muted-foreground"}>
         {formatCleanupPolicy(getValue())}
@@ -98,7 +99,7 @@ export const topicColumns = columnHelper.columns([
   columnHelper.accessor("groupCount", {
     id: "groups",
     header: "Groups",
-    meta: { align: "right", width: "6rem" },
+    meta: { align: "right" },
     cell: ({ getValue }) => emptyMetric(getValue(), getValue()),
   }),
 ]);

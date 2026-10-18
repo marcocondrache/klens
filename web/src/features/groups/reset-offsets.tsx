@@ -318,16 +318,17 @@ const planColumnHelper = createColumnHelper<DataTableFeatures, OffsetMove>();
 const planColumns = planColumnHelper.columns([
   planColumnHelper.accessor("topic", {
     header: "Topic",
+    meta: { grow: true },
     cell: ({ getValue }) => <span className="font-mono">{getValue()}</span>,
   }),
   planColumnHelper.accessor("partition", {
     header: "Partition",
-    meta: { align: "right", width: "6rem" },
+    meta: { align: "right" },
   }),
   planColumnHelper.accessor((move) => move.currentOffset ?? -1, {
     id: "committed",
     header: "Committed",
-    meta: { align: "right", width: "7rem" },
+    meta: { align: "right" },
     cell: ({ row }) => (
       <span className="text-muted-foreground">
         {row.original.currentOffset === null ? "none" : formatNumber(row.original.currentOffset)}
@@ -336,13 +337,13 @@ const planColumns = planColumnHelper.columns([
   }),
   planColumnHelper.accessor("newOffset", {
     header: "New",
-    meta: { align: "right", width: "7rem" },
+    meta: { align: "right" },
     cell: ({ getValue }) => formatNumber(getValue()),
   }),
   planColumnHelper.accessor((move) => move.endOffset - move.newOffset, {
     id: "lag",
     header: "Lag after",
-    meta: { align: "right", width: "7rem" },
+    meta: { align: "right" },
     cell: ({ getValue }) => (
       <span className="text-muted-foreground">{formatNumber(getValue())}</span>
     ),

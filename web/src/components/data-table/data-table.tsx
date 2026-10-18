@@ -2,7 +2,6 @@ import { useRef, useState, type ReactNode } from "react";
 import {
   FlexRender,
   useTable,
-  type Column,
   type ColumnDef,
   type Header,
   type RowData,
@@ -22,12 +21,12 @@ import { cn } from "@/lib/utils";
 
 import { DataTableColumnHeader } from "./column-header";
 import { features, type DataTableFeatures } from "./features";
+import { GROW_CELL, growWidths } from "./grow";
 import { tablePlaceholder } from "./placeholder";
 import { CLICKABLE_ROW, clickableRowProps } from "./row-interaction";
 import { SkeletonBar, skeletonRowStyle } from "./skeleton-bar";
 
 const ROW_SIZE = 40;
-const MIN_FLEX_WIDTH = "12rem";
 const SKELETON_ROWS = 14;
 
 interface DataTableProps<TData extends RowData> {
@@ -91,14 +90,10 @@ export function DataTable<TData extends RowData>({
       {toolbar ? <div className="flex shrink-0 flex-wrap items-center gap-2">{toolbar}</div> : null}
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border">
         <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto">
-          <Table
-            aria-busy={loading || undefined}
-            className="table-fixed"
-            style={{ minWidth: minTableWidth(leafColumns) }}
-          >
+          <Table aria-busy={loading || undefined}>
             <colgroup>
-              {leafColumns.map((column) => (
-                <col key={column.id} style={{ width: column.columnDef.meta?.width }} />
+              {growWidths(leafColumns).map(({ id, width }) => (
+                <col key={id} style={{ width }} />
               ))}
             </colgroup>
             <TableHeader className="[&_tr]:border-b-0!">
@@ -177,6 +172,7 @@ export function DataTable<TData extends RowData>({
                               className={cn(
                                 "h-10 overflow-hidden px-3 py-2 text-ellipsis first:pl-4 last:pr-4",
                                 meta?.align === "right" && "text-right numeric",
+                                meta?.grow && GROW_CELL,
                                 meta?.className,
                               )}
                             >
@@ -210,11 +206,4 @@ function HeaderContent<TData extends RowData>({
     return <DataTableColumnHeader column={header.column} title={title} />;
   }
   return <FlexRender header={header} />;
-}
-
-function minTableWidth<TData extends RowData>(
-  columns: Array<Column<DataTableFeatures, TData, unknown>>,
-) {
-  const widths = columns.map((column) => column.columnDef.meta?.width ?? MIN_FLEX_WIDTH);
-  return `calc(${widths.join(" + ")})`;
 }
