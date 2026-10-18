@@ -19,6 +19,7 @@ import type { SearchHit } from "@/lib/api/types";
 import { clusterTone, useClusterName } from "@/lib/clusters";
 import { apiErrorMessage } from "@/lib/api/client";
 import { useAccess } from "@/hooks/use-access";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { clusterSectionTo, useSwitchCluster, visibleSections } from "@/lib/sections";
 import { cn } from "@/lib/utils";
 
@@ -65,9 +66,10 @@ export function CommandPalette({
   const sections = visibleSections((privilege) => can(cluster, privilege));
   const [term, setTerm] = useState("");
   const searching = term.trim().length > 0;
+  const query = useDebouncedValue(term, 150);
 
   const { data: clusters = [] } = useClusters();
-  const { data: results = [], isPending, isError, error } = useSearch(cluster, term);
+  const { data: results = [], isPending, isError, error } = useSearch(cluster, query);
   const showNavigation = !searching || isPending;
   const hits = searching && !isPending ? results : [];
   const kinds = [...new Set(hits.map((hit) => hit.kind))];
