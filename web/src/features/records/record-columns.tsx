@@ -16,6 +16,7 @@ const columnHelper = createColumnHelper<DataTableFeatures, KafkaRecord>();
 
 export const recordColumns = columnHelper.columns([
   columnHelper.accessor("partition", {
+    size: 64,
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Part" className="justify-end" />
     ),
@@ -23,6 +24,7 @@ export const recordColumns = columnHelper.columns([
     cell: ({ getValue }) => <span className="numeric text-muted-foreground">{getValue()}</span>,
   }),
   columnHelper.accessor("offset", {
+    size: 120,
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Offset" className="justify-end" />
     ),
@@ -31,6 +33,7 @@ export const recordColumns = columnHelper.columns([
   }),
   columnHelper.accessor((record) => record.key ?? "", {
     id: "key",
+    size: 192,
     header: ({ column }) => <DataTableColumnHeader column={column} title="Key" />,
     cell: ({ row }) => (
       <span
@@ -55,6 +58,7 @@ export const recordColumns = columnHelper.columns([
   }),
   columnHelper.accessor("sizeBytes", {
     id: "size",
+    size: 96,
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Size" className="justify-end" />
     ),
@@ -64,6 +68,7 @@ export const recordColumns = columnHelper.columns([
     ),
   }),
   columnHelper.accessor("timestamp", {
+    size: 184,
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Timestamp" className="justify-end" />
     ),

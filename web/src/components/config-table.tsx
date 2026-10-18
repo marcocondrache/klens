@@ -68,6 +68,7 @@ const columns = columnHelper.columns([
   }),
   columnHelper.accessor("source", {
     header: "Source",
+    size: 144,
     meta: { align: "right" },
     cell: ({ getValue }) => {
       const source = getValue();
@@ -92,6 +93,7 @@ const columns = columnHelper.columns([
 function editColumn(onEdit: (entry: ConfigEntry) => void) {
   return columnHelper.display({
     id: "edit",
+    size: 56,
     meta: { align: "right" },
     cell: ({ row }) =>
       row.original.readOnly ? null : (

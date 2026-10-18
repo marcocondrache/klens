@@ -60,6 +60,7 @@ function rateColumn(
   return columnHelper.accessor((quota) => pick(quota) ?? -1, {
     id,
     header: title,
+    size: 128,
     meta: { align: "right" },
     cell: ({ row }) => render(pick(row.original)),
   });
@@ -74,6 +75,7 @@ export function quotaActionColumn({
 }) {
   return columnHelper.display({
     id: "action",
+    size: 80,
     meta: { align: "right" },
     cell: ({ row }) => (
       <>
