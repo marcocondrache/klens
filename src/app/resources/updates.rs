@@ -18,11 +18,13 @@ use crate::app::context::Session;
 use crate::app::error::ApiError;
 use crate::app::extract::{Path, Query};
 
+pub(crate) mod feed;
 pub mod types;
 
 #[cfg(test)]
 mod tests;
 
+use feed::{Frame, SharedChange};
 pub(crate) use types::{TopicRate, Update};
 
 pub(crate) fn router() -> Router<AppState> {
@@ -57,7 +59,7 @@ impl From<UpdateQuery> for Scope {
 
 /// What one change sends to one stream.
 enum Delivery {
-    /// The change in full, the same for every stream that sends it.
+    /// The change in full, which every stream that sends it shares.
     Firehose,
     /// The one update the change makes inside the stream's scope.
     Scoped(Update),
@@ -66,9 +68,9 @@ enum Delivery {
 }
 
 impl Scope {
-    fn events(&self, change: &Change) -> Vec<Event> {
-        match self.delivery(change) {
-            Delivery::Firehose => Update::firehose(change).iter().map(Update::sse).collect(),
+    fn events(&self, shared: &SharedChange) -> Vec<Event> {
+        match self.delivery(&shared.change) {
+            Delivery::Firehose => shared.firehose().to_vec(),
             Delivery::Scoped(update) => vec![update.sse()],
             Delivery::Skip => Vec::new(),
         }
@@ -146,14 +148,17 @@ pub(crate) async fn updates(
     Sse<axum::response::sse::KeepAliveStream<BoxStream<'static, Result<Event, Infallible>>>>,
     ApiError,
 > {
-    let store = Arc::clone(session.cluster(&cluster)?.store);
     let scope = Scope::from(query);
+    let handle = session.cluster(&cluster)?;
+    let frames = session.state.feed(handle.store.name())?.subscribe();
+    let lease = scope
+        .group
+        .as_deref()
+        .map(|group| handle.store.interest.lease_group(group));
+
     let stream = Stream {
-        _lease: scope
-            .group
-            .as_deref()
-            .map(|group| store.interest.lease_group(group)),
-        events: store.bus.subscribe(),
+        _lease: lease,
+        frames,
         guard: session.guard,
         pending: Vec::new().into_iter(),
         cluster,
@@ -166,7 +171,7 @@ pub(crate) async fn updates(
 }
 
 struct Stream {
-    events: Receiver<Change>,
+    frames: Receiver<Frame>,
     _lease: Option<InterestLease>,
     guard: SessionGuard,
     pending: std::vec::IntoIter<Event>,
@@ -186,7 +191,7 @@ impl Stream {
                     return Some((Ok(event), state));
                 }
 
-                let change = match state.events.recv().await {
+                let shared = match state.frames.recv().await {
                     Err(RecvError::Closed) => return None,
                     Err(RecvError::Lagged(missed)) => {
                         tracing::debug!(
@@ -196,14 +201,15 @@ impl Stream {
                         );
                         return Some((Ok(Update::Resync.sse()), state));
                     }
-                    Ok(change) => change,
+                    Ok(Frame::Resync) => return Some((Ok(Update::Resync.sse()), state)),
+                    Ok(Frame::Change(shared)) => shared,
                 };
 
                 if let Some(error) = state.denied() {
                     state.done = true;
                     return Some((Ok(error.event()), state));
                 }
-                state.pending = state.scope.events(&change).into_iter();
+                state.pending = state.scope.events(&shared).into_iter();
             }
         })
         .boxed()

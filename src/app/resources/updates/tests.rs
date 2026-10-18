@@ -93,6 +93,48 @@ async fn a_topic_scoped_subscriber_pays_only_for_its_own_topic() {
 }
 
 #[tokio::test]
+async fn streams_on_one_cluster_each_hear_every_change_once() {
+    let app = TestApp::local().await;
+    let mut first = app.open(UPDATES).await;
+    let mut second = app.open(UPDATES).await;
+
+    app.store().bus.publish(Change::Acls);
+    for live in [&mut first, &mut second] {
+        assert_eq!(live.next().await.name, "acls");
+    }
+    app.store().bus.publish(Change::Quotas);
+    for live in [&mut first, &mut second] {
+        assert_eq!(
+            live.next().await.name,
+            "quotas",
+            "the acls change came twice"
+        );
+    }
+}
+
+#[tokio::test]
+async fn a_scoped_stream_that_reads_first_leaves_the_full_change_to_the_others() {
+    let app = TestApp::local().await;
+    let mut scoped = app.open(&format!("{UPDATES}?topic=orders.created")).await;
+    let mut unscoped = app.open(UPDATES).await;
+    app.store()
+        .bus
+        .publish(tick(&[("orders.created", 10.0), ("payments.settled", 2.0)]));
+
+    assert_eq!(
+        scoped.next().await.data["topics"],
+        json!([{ "topic": "orders.created", "rate": 10.0 }])
+    );
+    assert_eq!(
+        unscoped.next().await.data["topics"],
+        json!([
+            { "topic": "orders.created", "rate": 10.0 },
+            { "topic": "payments.settled", "rate": 2.0 }
+        ])
+    );
+}
+
+#[tokio::test]
 async fn an_event_outside_the_scope_never_reaches_the_socket() {
     let app = TestApp::local().await;
     let mut live = app.open(&format!("{UPDATES}?topic=payments.settled")).await;

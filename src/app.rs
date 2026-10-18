@@ -10,9 +10,10 @@ use governor::{DefaultDirectRateLimiter, Quota, RateLimiter};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use crate::config::{AllowedHost, Mcp, Tuning};
-use crate::kafka::{Clusters, TailLimits};
+use crate::kafka::{Clusters, KafkaError, TailLimits};
 use crate::server::hosts::AllowedHostsLayer;
 use error::ApiError;
+use resources::updates::feed::{Feed, Feeds};
 
 pub(crate) mod auth;
 mod context;
@@ -36,6 +37,7 @@ pub(crate) const SSE_KEEP_ALIVE: Duration = Duration::from_secs(15);
 #[derive(Clone)]
 pub struct AppState {
     clusters: Arc<Clusters>,
+    feeds: Arc<Feeds>,
     auth: AuthState,
     limits: TailLimits,
     tails: Arc<Semaphore>,
@@ -46,6 +48,7 @@ pub struct AppState {
 impl AppState {
     pub fn new(clusters: Clusters, auth: AuthState, limits: Limits) -> Self {
         Self {
+            feeds: Arc::new(Feeds::new(&clusters)),
             clusters: Arc::new(clusters),
             auth,
             limits: limits.tail,
@@ -55,6 +58,10 @@ impl AppState {
                 limits.mcp_live_calls_per_minute,
             ))),
         }
+    }
+
+    pub(crate) fn feed(&self, cluster: &str) -> Result<&Feed, KafkaError> {
+        self.feeds.get(cluster)
     }
 
     pub(crate) fn tail_permit(&self) -> Option<OwnedSemaphorePermit> {
