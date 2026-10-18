@@ -31,7 +31,8 @@ impl DecodedPayload {
         }
     }
 
-    pub fn bytes(&self) -> &[u8] {
+    #[cfg(test)]
+    pub(crate) fn bytes(&self) -> &[u8] {
         &self.raw
     }
 
@@ -39,7 +40,8 @@ impl DecodedPayload {
         self.wire_schema_id
     }
 
-    pub fn json(&self) -> Option<&serde_json::Value> {
+    #[cfg(test)]
+    pub(crate) fn json(&self) -> Option<&serde_json::Value> {
         self.json.as_ref()
     }
 

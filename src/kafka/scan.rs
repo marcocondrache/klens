@@ -57,7 +57,8 @@ impl RecordPage {
         }
     }
 
-    pub fn has_more(&self) -> bool {
+    #[cfg(test)]
+    pub(crate) fn has_more(&self) -> bool {
         self.next_cursor.is_some()
     }
 }

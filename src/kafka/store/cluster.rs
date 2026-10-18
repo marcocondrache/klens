@@ -111,7 +111,8 @@ impl ClusterStore {
             .collect()
     }
 
-    pub fn topic_row(&self, name: &str) -> Option<TopicRow> {
+    #[cfg(test)]
+    pub(crate) fn topic_row(&self, name: &str) -> Option<TopicRow> {
         let topology = self.topology.load()?;
         let (key, topic) = topology.topics.get_key_value(name)?;
         let watermarks = self.watermarks.load();
@@ -177,7 +178,8 @@ impl ClusterStore {
             .collect()
     }
 
-    pub fn group_row(&self, id: &str) -> Option<GroupRow> {
+    #[cfg(test)]
+    pub(crate) fn group_row(&self, id: &str) -> Option<GroupRow> {
         let topology = self.topology.load()?;
         let (key, group) = topology.groups.get_key_value(id)?;
         Some(GroupRow::project(
