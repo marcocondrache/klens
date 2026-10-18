@@ -1,15 +1,27 @@
-import { RadioIcon } from "lucide-react";
+import {
+  ArrowDownWideNarrowIcon,
+  ArrowUpNarrowWideIcon,
+  RadioIcon,
+  type LucideIcon,
+} from "lucide-react";
 
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Button } from "@/components/ui/button";
+import { Toggle } from "@/components/ui/toggle";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { StatusDot } from "@/components/status";
 import type { TailStatus } from "@/lib/api/tail";
 import type { RecordOrder } from "@/lib/api/types";
 import type { Tone } from "@/lib/tone";
+import { cn } from "@/lib/utils";
 
 export type RecordMode = RecordOrder | "LIVE";
 
-const MODES = ["NEWEST", "OLDEST", "LIVE"] as const satisfies readonly RecordMode[];
+const ORDERS = ["NEWEST", "OLDEST"] as const satisfies readonly RecordOrder[];
+
+const ORDER: Record<RecordOrder, { label: string; icon: LucideIcon }> = {
+  NEWEST: { label: "Newest first", icon: ArrowDownWideNarrowIcon },
+  OLDEST: { label: "Oldest first", icon: ArrowUpNarrowWideIcon },
+};
 
 const TAIL: Record<TailStatus, { label: string; tone: Tone }> = {
   idle: { label: "Paused", tone: "idle" },
@@ -19,10 +31,55 @@ const TAIL: Record<TailStatus, { label: string; tone: Tone }> = {
   error: { label: "Stopped", tone: "error" },
 };
 
-const ITEM =
-  "px-2.5 font-normal text-muted-foreground hover:text-foreground aria-pressed:text-foreground";
+const QUIET =
+  "font-normal text-muted-foreground hover:text-foreground aria-expanded:text-foreground aria-pressed:text-foreground";
 
-export function RecordModeSwitch({
+export function RecordOrderToggle({
+  value,
+  onChange,
+}: {
+  value: RecordMode;
+  onChange: (mode: RecordMode) => void;
+}) {
+  // The tail always shows the newest record first, so the toggle says so and
+  // stays locked until live is off.
+  const order = value === "LIVE" ? "NEWEST" : value;
+  const next = order === "NEWEST" ? "OLDEST" : "NEWEST";
+  const Icon = ORDER[order].icon;
+
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            variant="outline"
+            disabled={value === "LIVE"}
+            aria-label={`Sort: ${ORDER[order].label}`}
+            className={QUIET}
+            onClick={() => onChange(next)}
+          />
+        }
+      >
+        <Icon className="size-3.5" />
+        {/* Every label takes the same cell, so the button keeps the widest
+            one's width and the filter beside it holds still on a change. */}
+        <span className="grid text-left">
+          {ORDERS.map((candidate) => (
+            <span
+              key={candidate}
+              className={cn("col-start-1 row-start-1", candidate !== order && "invisible")}
+            >
+              {ORDER[candidate].label}
+            </span>
+          ))}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent>Show {ORDER[next].label.toLowerCase()}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+export function LiveToggle({
   value,
   onChange,
   status,
@@ -34,44 +91,28 @@ export function RecordModeSwitch({
   const tail = status ? TAIL[status] : null;
 
   return (
-    <ToggleGroup
-      variant="outline"
-      spacing={0}
-      value={[value]}
-      onValueChange={(next) => {
-        const picked = MODES.find((mode) => mode === next[0]);
-        if (picked) onChange(picked);
-      }}
-      aria-label="Records to show"
-      className="bg-background dark:bg-input/20"
-    >
-      <ToggleGroupItem value="NEWEST" className={ITEM}>
-        Newest
-      </ToggleGroupItem>
-      <ToggleGroupItem value="OLDEST" className={ITEM}>
-        Oldest
-      </ToggleGroupItem>
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <ToggleGroupItem
-              value="LIVE"
-              aria-label={tail ? `Live: ${tail.label}` : "Live"}
-              className={ITEM}
-            />
-          }
-        >
-          <span className="flex size-3.5 items-center justify-center">
-            {tail ? (
-              <StatusDot tone={tail.tone} pulse={status === "live"} />
-            ) : (
-              <RadioIcon className="size-3.5" />
-            )}
-          </span>
-          Live
-        </TooltipTrigger>
-        <TooltipContent>{tail ? tail.label : "Follow new records as they arrive"}</TooltipContent>
-      </Tooltip>
-    </ToggleGroup>
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Toggle
+            variant="outline"
+            pressed={value === "LIVE"}
+            onPressedChange={(pressed) => onChange(pressed ? "LIVE" : "NEWEST")}
+            aria-label={tail ? `Live: ${tail.label}` : "Live"}
+            className={cn("bg-background dark:bg-input/20", QUIET)}
+          />
+        }
+      >
+        <span className="flex size-3.5 items-center justify-center">
+          {tail ? (
+            <StatusDot tone={tail.tone} pulse={status === "live"} />
+          ) : (
+            <RadioIcon className="size-3.5" />
+          )}
+        </span>
+        Live
+      </TooltipTrigger>
+      <TooltipContent>{tail ? tail.label : "Follow new records as they arrive"}</TooltipContent>
+    </Tooltip>
   );
 }

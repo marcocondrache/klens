@@ -1,4 +1,4 @@
-import { useId, useState, type FormEvent } from "react";
+import { useId, useRef, useState, type FormEvent } from "react";
 import { LocateFixedIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -23,7 +23,9 @@ export function RecordJump({
     topic.partitions.length === 1 ? String(topic.partitions[0].id) : "",
   );
   const [offset, setOffset] = useState("");
+  const offsetRef = useRef<HTMLInputElement>(null);
 
+  const lastPartition = topic.partitions.length - 1;
   const partitionId = DIGITS.test(partition) ? Number(partition) : null;
   const knownPartition =
     partitionId != null && topic.partitions.some((candidate) => candidate.id === partitionId);
@@ -41,11 +43,22 @@ export function RecordJump({
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger render={<Button variant="outline" className="font-normal" />}>
-        <LocateFixedIcon data-icon="inline-start" className="text-muted-foreground" />
+      <PopoverTrigger
+        render={
+          <Button
+            variant="outline"
+            className="font-normal text-muted-foreground hover:text-foreground aria-expanded:text-foreground"
+          />
+        }
+      >
+        <LocateFixedIcon className="size-3.5" />
         Go to offset
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-64 p-3">
+      <PopoverContent
+        align="end"
+        initialFocus={knownPartition ? offsetRef : true}
+        className="w-64 p-3"
+      >
         <form className="grid gap-3" onSubmit={submit}>
           <FieldGroup className="grid grid-cols-[5rem_minmax(0,1fr)] gap-2">
             <Field data-invalid={badPartition || undefined} className="gap-1.5">
@@ -57,6 +70,7 @@ export function RecordJump({
                 inputMode="numeric"
                 autoComplete="off"
                 className="numeric"
+                placeholder={lastPartition > 0 ? `0–${lastPartition}` : undefined}
                 value={partition}
                 aria-invalid={badPartition || undefined}
                 aria-describedby={badPartition ? `${id}-partition-error` : undefined}
@@ -68,6 +82,7 @@ export function RecordJump({
                 Offset
               </FieldLabel>
               <Input
+                ref={offsetRef}
                 id={`${id}-offset`}
                 inputMode="numeric"
                 autoComplete="off"
@@ -81,7 +96,7 @@ export function RecordJump({
           </FieldGroup>
           {badPartition ? (
             <FieldError id={`${id}-partition-error`} className="text-xs">
-              This topic has partitions 0 to {topic.partitions.length - 1}.
+              This topic has partitions 0 to {lastPartition}.
             </FieldError>
           ) : null}
           {badOffset ? (

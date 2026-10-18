@@ -18,7 +18,7 @@ import type { KafkaRecord, RecordOrder, TopicDetail } from "@/lib/api/types";
 import { fromDatetimeLocalValue } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-import { RecordModeSwitch, type RecordMode } from "./record-mode";
+import type { RecordMode } from "./record-mode";
 import { filterPartitions, type RecordFilter } from "./record-filter";
 import { RecordView, type RecordSource } from "./record-view";
 import { useTimestampFilter } from "./timestamp-filter";
@@ -115,30 +115,29 @@ export function PagedRecords({
       source={source}
       filter={filter}
       onFilterChange={onFilterChange}
+      mode={order}
+      onModeChange={onModeChange}
       actions={
-        <>
-          {partitions?.length !== 0 ? (
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <a
-                    href={recordsExportUrl(cluster, query)}
-                    download
-                    aria-label="Download matching records as NDJSON"
-                    className={cn(
-                      buttonVariants({ variant: "outline", size: "icon" }),
-                      "text-muted-foreground",
-                    )}
-                  />
-                }
-              >
-                <DownloadIcon className="size-3.5" />
-              </TooltipTrigger>
-              <TooltipContent>Download NDJSON</TooltipContent>
-            </Tooltip>
-          ) : null}
-          <RecordModeSwitch value={order} onChange={onModeChange} />
-        </>
+        partitions?.length !== 0 ? (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <a
+                  href={recordsExportUrl(cluster, query)}
+                  download
+                  aria-label="Download matching records as NDJSON"
+                  className={cn(
+                    buttonVariants({ variant: "outline", size: "icon" }),
+                    "text-muted-foreground",
+                  )}
+                />
+              }
+            >
+              <DownloadIcon className="size-3.5" />
+            </TooltipTrigger>
+            <TooltipContent>Download NDJSON</TooltipContent>
+          </Tooltip>
+        ) : null
       }
       notice={
         lastPage && !lastPage.complete && !isPlaceholderData ? (

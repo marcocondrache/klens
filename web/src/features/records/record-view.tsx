@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 
 import { FilterBar, type CustomFilter } from "@/components/data-table/filter-bar";
 import { SearchField } from "@/components/search-field";
+import type { TailStatus } from "@/lib/api/tail";
 import type { KafkaRecord, TopicDetail } from "@/lib/api/types";
 
 import { ObfuscatedBadge } from "./obfuscated-badge";
@@ -10,6 +11,7 @@ import { recordColumns } from "./record-columns";
 import { partitionField, type RecordFilter } from "./record-filter";
 import { recordId } from "./record-id";
 import { RecordJump } from "./record-jump";
+import { LiveToggle, RecordOrderToggle, type RecordMode } from "./record-mode";
 import { RecordSheet } from "./record-sheet";
 import { RecordTable } from "./record-table";
 import { SchemaPicker } from "./schema-picker";
@@ -37,6 +39,9 @@ type RecordViewProps = {
   filter: RecordFilter;
   onFilterChange: (filter: RecordFilter) => void;
   filters?: readonly CustomFilter[];
+  mode: RecordMode;
+  onModeChange: (mode: RecordMode) => void;
+  tailStatus?: TailStatus;
   status?: ReactNode;
   actions?: ReactNode;
   notice?: ReactNode;
@@ -50,6 +55,9 @@ export function RecordView({
   filter,
   onFilterChange,
   filters,
+  mode,
+  onModeChange,
+  tailStatus,
   status,
   actions,
   notice,
@@ -73,6 +81,8 @@ export function RecordView({
           placeholder="Search key or value…"
         />
 
+        <RecordOrderToggle value={mode} onChange={onModeChange} />
+
         <FilterBar
           fields={fields}
           value={filter.rules}
@@ -92,12 +102,14 @@ export function RecordView({
           />
         ) : null}
 
-        {obfuscated ? <ObfuscatedBadge /> : null}
-        {status}
-
+        {/* The jump and the live toggle keep one width in every mode, so they
+            close the row and stay put while the mode's actions change. */}
         <div className="ml-auto flex items-center gap-2">
-          <RecordJump topic={topic} onOpen={open} />
+          {obfuscated ? <ObfuscatedBadge /> : null}
+          {status}
           {actions}
+          <RecordJump topic={topic} onOpen={open} />
+          <LiveToggle value={mode} onChange={onModeChange} status={tailStatus} />
         </div>
       </div>
 
