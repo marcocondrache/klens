@@ -400,7 +400,7 @@ impl PageRequest {
 
         for pass in 0..max_passes {
             let from = cursor.as_ref().unwrap_or(&fresh);
-            if pass > 0 {
+            if pass != 0 {
                 windows = span.windows(walk, self.take, cursor.as_ref());
                 if windows.is_empty() {
                     cursor = None;
@@ -428,9 +428,8 @@ impl PageRequest {
                 kept.extend(found);
             }
 
-            let stalled = next == cursor;
             cursor = next;
-            if filled || cursor.is_none() || stalled || Instant::now() >= deadline {
+            if filled || cursor.is_none() || Instant::now() >= deadline {
                 break;
             }
         }
