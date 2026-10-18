@@ -56,9 +56,7 @@ use crate::kafka::storage::LogDir;
 use crate::kafka::topic_config::{BrokerScope, ConfigEdit, ConfigEntry};
 
 use convert::{committed_from_krafka, produce_refusal, refused, unless_denied};
-use groups::{
-    ACTIVE_GROUP_STATES, LISTED_GROUP_TYPES, snapshots_from_descriptions, split_empty_groups,
-};
+use groups::{LISTED_GROUP_TYPES, ListedGroup, snapshots_from_descriptions, split_empty_groups};
 use offsets::{log_offsets, time_offsets};
 use pool::ScanPool;
 use scan::ReaderConfig;
@@ -252,12 +250,8 @@ impl ClusterSession for KafkaClient {
     async fn groups(&self) -> Result<Vec<GroupSnapshot>, KafkaError> {
         let admin = &self.transport().await?.admin;
         let listing = ListConsumerGroupsOptions::default().types(owned(&LISTED_GROUP_TYPES));
-        let active_listing = listing.clone().states(owned(&ACTIVE_GROUP_STATES));
-        let (listed, active) = tokio::try_join!(
-            admin.list_consumer_groups(listing),
-            admin.list_consumer_groups(active_listing),
-        )?;
-        let (active, mut groups) = split_empty_groups(group_ids(listed)?, group_ids(active)?);
+        let listed = admin.list_consumer_groups(listing).await?;
+        let (active, mut groups) = split_empty_groups(listed_groups(listed)?);
         groups.extend(snapshots_from_descriptions(
             admin
                 .describe_consumer_groups(active, DescribeConsumerGroupsOptions::default())
@@ -817,14 +811,14 @@ fn owned(values: &[&str]) -> Vec<String> {
     values.iter().map(|&value| value.to_owned()).collect()
 }
 
-fn group_ids(
+fn listed_groups(
     listed: std::collections::HashMap<i32, Result<Vec<ConsumerGroupListing>, KrafkaError>>,
-) -> Result<Vec<String>, KafkaError> {
-    let mut ids = Vec::new();
-    for groups in listed.into_values() {
-        ids.extend(groups?.into_iter().map(|group| group.group_id));
+) -> Result<Vec<ListedGroup>, KafkaError> {
+    let mut groups = Vec::new();
+    for listing in listed.into_values() {
+        groups.extend(listing?.into_iter().map(ListedGroup::from_krafka));
     }
-    Ok(ids)
+    Ok(groups)
 }
 
 fn offset_specs<Topic: AsRef<str>>(
