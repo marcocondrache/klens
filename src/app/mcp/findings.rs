@@ -113,8 +113,6 @@ impl Finding {
             }
         }
         let mut findings = Vec::new();
-        // klens decodes only consumer assignments, so a Kafka Connect group shows
-        // none and says nothing about how many partitions it reads.
         if every_topic_known && !assigned.is_empty() && group.members.len() > partitions {
             findings.push(Self::MoreMembersThanPartitions {
                 members: group.members.len(),
@@ -122,8 +120,6 @@ impl Finding {
             });
         }
         findings.extend(Self::lag_on_one_member(group));
-        // A result that must shrink keeps the first findings, and a group can
-        // leave a partition of every topic it reads unassigned.
         findings.extend(unassigned_partitions);
         findings
     }
@@ -151,7 +147,6 @@ impl Finding {
     }
 }
 
-/// In `group.members` order, and 0 for a member that holds no partition.
 pub fn member_lags(group: &GroupDetail) -> Vec<Option<i64>> {
     let mut held: HashMap<&str, Option<i64>> = HashMap::new();
     for offset in &group.offsets {

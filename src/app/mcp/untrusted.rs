@@ -40,7 +40,6 @@ impl Boundary {
 }
 
 impl Boundary {
-    /// A broker or schema registry chooses the text of a lane's error.
     pub(super) fn lane_error(&self, error: Option<&str>) -> Option<String> {
         error.map(|error| self.enclose(&clip(error, MAX_MESSAGE_CHARS).0))
     }
@@ -61,7 +60,6 @@ pub(super) fn clip(text: &str, budget: usize) -> (&str, bool) {
     }
 }
 
-/// A group id, client id or host is as long as its client chose.
 pub(super) fn shorten(text: &str) -> Cow<'_, str> {
     match clip(text, MAX_CLIENT_VALUE_CHARS) {
         (kept, true) => Cow::Owned(format!("{kept}…")),

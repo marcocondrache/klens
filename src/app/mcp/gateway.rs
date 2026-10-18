@@ -7,8 +7,6 @@ use sha2::{Digest, Sha256};
 use crate::app::error::ApiError;
 use crate::config::KeyMaterial;
 
-/// The secret a gateway such as agentgateway adds to every call it lets
-/// through, as `Authorization: Bearer`.
 #[derive(Clone)]
 pub(crate) struct GatewaySecret([u8; 32]);
 
@@ -17,8 +15,6 @@ impl GatewaySecret {
         Self(Sha256::digest(secret.as_bytes()).into())
     }
 
-    /// Comparing digests keeps the time a comparison takes from telling
-    /// anything about the secret.
     fn admits(&self, headers: &HeaderMap) -> bool {
         let mut values = headers.get_all(header::AUTHORIZATION).iter();
         let (Some(value), None) = (values.next(), values.next()) else {
@@ -44,7 +40,6 @@ pub(crate) async fn require_secret(
         tracing::warn!("refused an mcp call that lacks the gateway's secret");
         return ApiError::NotFromGateway.into_response();
     }
-    // Nothing behind `/mcp` can echo the secret once it stops here.
     request.headers_mut().remove(header::AUTHORIZATION);
     next.run(request).await
 }

@@ -1,16 +1,9 @@
-//! Replies that shrink until they fit the result budget.
-//!
-//! A tool builds its reply from owned lists and hands it to [`fit`]. When the
-//! whole reply is too large, `fit` shows fewer rows of every list until it
-//! fits, and says what it left out.
-
 use rmcp::model::CallToolResult;
 use serde::ser::SerializeMap as _;
 use serde::{Serialize, Serializer};
 
 use super::{DEFAULT_ROWS, MAX_ROWS, RESULT_BYTES};
 
-/// A named list of which a reply may show only the first rows.
 pub(super) struct Rows<T> {
     name: &'static str,
     all: Vec<T>,
@@ -41,7 +34,6 @@ impl<T: Serialize> Serialize for Rows<T> {
     }
 }
 
-/// What `fit` needs of a list, whatever its rows hold.
 pub(super) trait Cut {
     fn name(&self) -> &'static str;
     fn total(&self) -> usize;
@@ -67,8 +59,6 @@ impl<T> Cut for Rows<T> {
     }
 }
 
-/// A list a client pages through with `limit`. It serializes as its rows under
-/// the list's name, beside a `showing` line that counts them.
 pub(super) struct Page<T> {
     rows: Rows<T>,
     matching: usize,
@@ -76,7 +66,6 @@ pub(super) struct Page<T> {
 }
 
 impl<T> Page<T> {
-    /// `narrow` tells the client how to see rows the page leaves out.
     pub fn new(
         name: &'static str,
         mut rows: Vec<T>,
@@ -118,7 +107,6 @@ impl<T: Serialize> Serialize for Page<T> {
     }
 }
 
-/// A reply field that holds lists `fit` may cut.
 pub(super) trait Lists {
     fn push_lists<'a>(&'a mut self, lists: &mut Vec<&'a mut dyn Cut>);
 }
@@ -135,9 +123,6 @@ impl<T> Lists for Page<T> {
     }
 }
 
-/// Implements [`Reply`] for a struct whose listed fields hold the lists to cut.
-/// A trailing string says what stays whole when a list is cut. Without one,
-/// the reply says so itself, as a [`Page`] does.
 macro_rules! reply {
     ($reply:ty: $($field:ident),+ $(; $kept:literal)?) => {
         impl $crate::app::mcp::reply::Reply for $reply {
@@ -155,23 +140,17 @@ macro_rules! reply {
 }
 pub(super) use reply;
 
-/// A tool result that may need cutting to fit.
 pub(super) trait Reply: Serialize {
     fn lists(&mut self) -> Vec<&mut dyn Cut>;
 
-    /// What the client keeps whole when a list is cut, or `None` when the reply
-    /// says so itself, as a [`Page`] does.
     fn kept_whole(&self) -> Option<&str>;
 
-    /// Rows of lists inside the rows of `lists`, which `cap` also cuts.
     fn inner_rows(&self) -> usize {
         0
     }
 
-    /// Cuts the lists inside the rows of `lists` to `rows`.
     fn cap(&mut self, _rows: usize) {}
 
-    /// A note on what `cap` cut, to follow the one on `lists`.
     fn capped_note(&self, _rows: usize) -> Option<String> {
         None
     }
@@ -228,20 +207,15 @@ fn render(reply: &mut impl Reply, rows: usize) -> CallToolResult {
     )
 }
 
-/// Renders `showing` with the most rows, or else with the most rows that
-/// fit, as far as one row can fit.
 pub(super) fn search(
     most: usize,
     mut showing: impl FnMut(usize) -> CallToolResult,
 ) -> CallToolResult {
-    // A row takes at least a byte, so more rows than bytes never fit, and an
-    // uncapped list would render whole just to learn that.
     let most = most.min(RESULT_BYTES);
     let full = showing(most);
     if fits(&full) {
         return full;
     }
-    // `fitting` rows fit, or it is 0, and `too_many` rows do not.
     let (mut fitting, mut too_many, mut best) = (0, most, None);
     while too_many - fitting > 1 {
         let rows = fitting + (too_many - fitting) / 2;

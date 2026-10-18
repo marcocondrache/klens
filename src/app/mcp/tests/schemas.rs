@@ -131,7 +131,6 @@ async fn schemas_list_says_when_there_is_no_registry_to_read() {
     );
 }
 
-/// A schema result as one object, as the subjects route gives it.
 fn schema_in(text: &str) -> Value {
     let facts = text
         .lines()

@@ -5,7 +5,6 @@ use rmcp::{tool, tool_router};
 use serde::Serialize;
 
 use crate::app::context::Session;
-use crate::app::resources::groups::types::GroupState;
 use crate::app::mcp::args::{NameFilter, ResponseFormat, input, largest_first};
 use crate::app::mcp::ext::{ClusterExt as _, SessionExt as _};
 use crate::app::mcp::findings::{Finding, member_lags};
@@ -14,6 +13,7 @@ use crate::app::mcp::reply::{Cut, Page, Reply, Rows, fit, prefix, reply};
 use crate::app::mcp::server::{KlensMcp, ToolResult};
 use crate::app::mcp::untrusted::shorten;
 use crate::app::mcp::{CLIENT_VALUES_NOTICE, MAX_ROWS};
+use crate::app::resources::groups::types::GroupState;
 use crate::kafka::KafkaError;
 use crate::kafka::model::{GroupMember, GroupOffset};
 use crate::kafka::store::projections::{self, GroupDetail};
@@ -121,7 +121,6 @@ struct AssignmentRow<'a> {
 }
 
 impl<'a> MemberRow<'a> {
-    /// The member with at most `most` topics, and at most `most` partitions of each.
     fn new(member: &'a GroupMember, lag: Option<i64>, most: usize) -> Self {
         let (assigned, topics_left_out) = prefix(&member.assignments, most);
         Self {
@@ -144,7 +143,6 @@ impl<'a> MemberRow<'a> {
         }
     }
 
-    /// The most topics or partitions of a topic the member holds.
     fn widest(member: &GroupMember) -> usize {
         member
             .assignments
@@ -176,8 +174,6 @@ impl<'a> From<&'a GroupOffset> for GroupPartitionRow<'a> {
     }
 }
 
-/// A group with its members and partitions, the largest lag first. A member
-/// names topics and partitions in lists of their own, which a cut also shortens.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct GroupDescription<'a> {
@@ -194,7 +190,6 @@ struct GroupDescription<'a> {
     whole: Whole<'a>,
 }
 
-/// The findings and members as they stand before a cut shortens their lists.
 struct Whole<'a> {
     findings: Vec<Finding>,
     members: Vec<(&'a GroupMember, Option<i64>)>,

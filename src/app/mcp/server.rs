@@ -24,7 +24,6 @@ use crate::app::error::ApiError;
 use super::MAX_CLIENT_CHARS;
 use super::gate::ToolGate;
 
-/// What every tool returns. A refusal becomes an error result the client reads.
 pub(super) type ToolResult = Result<CallToolResult, ApiError>;
 
 pub(crate) struct KlensMcp {
@@ -35,7 +34,6 @@ pub(crate) struct KlensMcp {
 }
 
 impl KlensMcp {
-    /// Reading live from Kafka costs it a call, so MCP gets a few a minute.
     pub(super) fn live_call(&self) -> Result<(), ApiError> {
         if self.state.mcp_live_call() {
             Ok(())
@@ -111,8 +109,6 @@ impl ServerHandler for KlensMcp {
         if let Some(client) = Self::client(&context) {
             span.record("client", client.as_str());
         }
-        // A write that reached Kafka must still log its audit line after the
-        // client goes away, so only a read stops when it does.
         let changes = ToolGate::named(&route.attr.name).is_some_and(ToolGate::changes);
         self.run(route, request, context, !changes)
             .instrument(span)

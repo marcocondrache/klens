@@ -64,7 +64,6 @@ const MAX_QUERY_CHARS: usize = 256;
 /// call hold 4 MiB.
 const MAX_REQUEST_BYTES: usize = 65_536;
 
-/// A client names itself, and the name lands on every log line of its call.
 const MAX_CLIENT_CHARS: usize = 64;
 
 pub(crate) fn router(state: AppState, mcp: &Mcp) -> Router {
@@ -85,8 +84,6 @@ pub(crate) fn router(state: AppState, mcp: &Mcp) -> Router {
     }
 }
 
-/// Every MCP call holds exactly this, since a gateway in front of `/mcp`
-/// decides who reaches it.
 pub(crate) fn access(mcp: &Mcp) -> EffectiveAccess {
     EffectiveAccess::Granted(vec![Grant::new(
         "mcp",
@@ -100,8 +97,6 @@ pub(crate) fn refusing_browsers() -> StreamableHttpServerConfig {
     StreamableHttpServerConfig::default().enforce_origin_validation()
 }
 
-/// `mcp.bind` and the gateway decide who reaches `/mcp`, so rmcp checks no
-/// Host.
 pub(crate) fn service(
     state: AppState,
     access: EffectiveAccess,

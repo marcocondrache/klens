@@ -1,5 +1,3 @@
-//! The configs section a tool returns beside a broker or a topic.
-
 use serde::Serialize;
 
 use crate::app::auth::access::{AccessError, Privilege};
@@ -11,14 +9,12 @@ use super::MAX_CONFIG_CHARS;
 use super::reply::{Cut, Lists, Rows};
 use super::untrusted::{Boundary, clip};
 
-/// A part of a tool's result that the caller's privileges may withhold.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) enum Section {
     Configs,
 }
 
-/// The configs whose value is not Kafka's default, or why they are left out.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct ConfigSection {
@@ -64,7 +60,6 @@ impl ConfigSection {
         }
     }
 
-    /// The caller lacks a privilege. Any other refusal is the tool's to return.
     pub fn withheld(error: AccessError) -> Result<Self, ApiError> {
         match error {
             AccessError::Forbidden { privilege, .. } => Ok(Self::omitted(Reason::Needs(privilege))),
@@ -72,15 +67,12 @@ impl ConfigSection {
         }
     }
 
-    /// klens has not read the configs yet. `last_error` is the message of the
-    /// read that failed, which a broker chose.
     pub fn not_read(last_error: Option<&str>, boundary: &Boundary) -> Self {
         Self::omitted(Reason::NotRead {
             last_error: boundary.lane_error(last_error),
         })
     }
 
-    /// Whether the section is missing and a broker's error says why.
     pub fn explained_by_error(&self) -> bool {
         matches!(
             self.omitted,

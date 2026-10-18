@@ -5,8 +5,6 @@ use rmcp::handler::server::router::tool::ToolRouter;
 use super::gate::ToolGate;
 use super::server::KlensMcp;
 
-/// Lists the tool modules, each with the router its `#[tool_router]` makes.
-/// A module defines `GATES` beside its tools.
 macro_rules! tools {
     ($($module:ident => $router:ident),+ $(,)?) => {
         $(mod $module;)+
@@ -14,8 +12,6 @@ macro_rules! tools {
         impl KlensMcp {
             pub(super) fn tools() -> ToolRouter<Self> {
                 let mut router = ToolRouter::new() $(+ Self::$router())+;
-                // the_tool_table_names_every_tool_the_router_serves keeps the
-                // gates and the routes in step.
                 for route in router.map.values_mut() {
                     if let Some(gate) = ToolGate::named(&route.attr.name) {
                         route.attr.annotations = Some(gate.annotations());
@@ -25,7 +21,6 @@ macro_rules! tools {
             }
         }
 
-        /// Every tool's gate, by name, the order a client reads in the access list.
         pub(super) fn gates() -> impl Iterator<Item = &'static ToolGate> {
             static SORTED: LazyLock<Vec<&'static ToolGate>> = LazyLock::new(|| {
                 let mut gates: Vec<_> = [$($module::GATES),+].into_iter().flatten().collect();

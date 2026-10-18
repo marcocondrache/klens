@@ -6,7 +6,6 @@ use crate::app::resources::subjects::types::{SchemaReference, SchemaType, Subjec
 use super::untrusted::{Boundary, clip};
 use crate::app::mcp::reply::{prefix, search};
 
-/// What a client reads of a schema besides its text.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SchemaFacts {
@@ -18,7 +17,6 @@ struct SchemaFacts {
     references_left_out: usize,
 }
 
-/// The text of a schema, which whoever registered it chose.
 #[derive(Serialize)]
 struct SchemaText<'a> {
     schema: &'a str,
