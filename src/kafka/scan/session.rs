@@ -64,7 +64,7 @@ pub trait ScanConsumer: Send + Sync {
 
     async fn position(&self, partition: i32) -> Option<i64>;
 
-    async fn lag(&self, partition: i32) -> Option<u64>;
+    async fn lags(&self) -> HashMap<i32, u64>;
 
     async fn close(&self);
 }
@@ -207,24 +207,31 @@ impl ScanSession {
     /// error. A partition is only finished once its position or lag says so.
     async fn settle_idle(&self, scan: &mut WindowScan, deadline: Instant) {
         let mut done = Vec::new();
+        let mut lags = None;
         for (&partition, window) in &scan.remaining {
             let Ok(Some(position)) = timeout_at(deadline, self.consumer.position(partition)).await
             else {
                 continue;
             };
-            if position >= window.end
-                || matches!(
-                    timeout_at(deadline, self.consumer.lag(partition)).await,
-                    Ok(Some(0))
-                )
-            {
+            if position >= window.end {
+                done.push(partition);
+                continue;
+            }
+
+            if lags.is_none() {
+                let report = timeout_at(deadline, self.consumer.lags()).await;
+                lags = Some(report.unwrap_or_default());
+            }
+            if lags.as_ref().and_then(|lags| lags.get(&partition)) == Some(&0) {
                 done.push(partition);
             }
         }
 
-        for partition in done {
+        for &partition in &done {
             scan.finish(partition);
-            self.consumer.pause(&[partition]).await;
+        }
+        if !done.is_empty() {
+            self.consumer.pause(&done).await;
         }
     }
 }
