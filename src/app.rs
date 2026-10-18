@@ -103,7 +103,6 @@ fn auth_routes() -> Router<AppState> {
     Router::new().nest("/auth", auth::router())
 }
 
-/// Nested as a service so the UI's HTML fallback never answers under `/api`.
 fn api_routes(state: AppState, resources: Router<AppState>) -> Router<AppState> {
     let api = auth_routes()
         .merge(resources)
@@ -136,8 +135,6 @@ pub fn router(state: AppState, allowed_hosts: &[AllowedHost]) -> Router {
         .merge(api_routes(state.clone(), resources))
         .with_state(state.clone())
         .merge(crate::server::web::router());
-    // With auth on, the session cookie stays with klens' own host, so a page
-    // that points its own domain at klens holds no session.
     if !state.auth.is_enabled() {
         app = app.layer(AllowedHostsLayer::new(allowed_hosts));
     }
