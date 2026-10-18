@@ -2,12 +2,11 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use enumset::EnumSet;
+use foldhash::{HashMap, HashMapExt};
 use indexmap::IndexMap;
 
 pub use crate::config::Privilege;
 use crate::config::Role;
-
-const MAX_GROUPS: usize = 64;
 
 pub type PrivilegeSet = EnumSet<Privilege>;
 
@@ -219,15 +218,8 @@ pub struct Identity<'a> {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RoleTable {
-    bindings: Vec<CompiledBinding>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct CompiledBinding {
-    groups: BTreeSet<String>,
-    role_name: Arc<str>,
-    privileges: PrivilegeSet,
-    scope: ClusterScope,
+    grants: Vec<Grant>,
+    by_group: HashMap<String, Vec<usize>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -247,49 +239,49 @@ impl AccessPolicy {
     pub fn admit(&self, identity: &Identity<'_>) -> Option<EffectiveAccess> {
         match self {
             Self::Open => Some(EffectiveAccess::Unrestricted),
-            Self::Bound(table) => {
-                if identity.groups.len() > MAX_GROUPS {
-                    return None;
-                }
-                table.resolve(identity.groups).map(EffectiveAccess::Granted)
-            }
+            Self::Bound(table) => table.resolve(identity.groups).map(EffectiveAccess::Granted),
         }
     }
 }
 
 impl RoleTable {
     fn compile(roles: &IndexMap<String, Role>) -> Self {
-        Self {
-            bindings: roles
-                .iter()
-                .flat_map(|(name, role)| {
-                    let role_name: Arc<str> = Arc::from(name.as_str());
-                    let privileges = PrivilegeSet::from_iter(role.privileges.iter().copied());
-                    role.bindings.iter().map(move |binding| CompiledBinding {
-                        groups: binding.groups.iter().cloned().collect(),
-                        role_name: Arc::clone(&role_name),
-                        privileges,
-                        scope: ClusterScope::from_list(binding.clusters.as_deref()),
-                    })
-                })
-                .collect(),
+        let mut grants = Vec::new();
+        let mut by_group: HashMap<String, Vec<usize>> = HashMap::new();
+
+        for (name, role) in roles {
+            let role_name: Arc<str> = Arc::from(name.as_str());
+            let privileges = PrivilegeSet::from_iter(role.privileges.iter().copied());
+
+            for binding in &role.bindings {
+                for group in &binding.groups {
+                    by_group
+                        .entry(group.clone())
+                        .or_default()
+                        .push(grants.len());
+                }
+                grants.push(Grant {
+                    role_name: Arc::clone(&role_name),
+                    privileges,
+                    scope: ClusterScope::from_list(binding.clusters.as_deref()),
+                });
+            }
         }
+
+        Self { grants, by_group }
     }
 
     fn resolve(&self, groups: &[String]) -> Option<Vec<Grant>> {
-        let grants: Vec<Grant> = self
-            .bindings
+        let matched: BTreeSet<usize> = groups
             .iter()
-            .filter(|binding| {
-                groups
-                    .iter()
-                    .any(|group| binding.groups.contains(group.as_str()))
-            })
-            .map(|binding| Grant {
-                role_name: Arc::clone(&binding.role_name),
-                privileges: binding.privileges,
-                scope: binding.scope.clone(),
-            })
+            .filter_map(|group| self.by_group.get(group.as_str()))
+            .flatten()
+            .copied()
+            .collect();
+
+        let grants: Vec<Grant> = matched
+            .into_iter()
+            .map(|index| self.grants[index].clone())
             .collect();
 
         (!grants.is_empty()).then_some(grants)
@@ -615,17 +607,35 @@ mod tests {
     }
 
     #[test]
-    fn too_many_groups_are_refused() {
+    fn a_match_late_in_a_long_group_list_is_admitted() {
         let policy = table(
             &[("admin", EVERYTHING)],
             vec![binding(&["klens-admins"], "admin", None)],
         );
-        let mut groups: Vec<String> = (1..MAX_GROUPS).map(|i| format!("g{i}")).collect();
+        let mut groups: Vec<String> = (0..200).map(|i| format!("g{i}")).collect();
         groups.push("klens-admins".to_owned());
-        assert!(policy.admit(&Identity { groups: &groups }).is_some());
 
-        groups.push(format!("g{MAX_GROUPS}"));
-        assert_eq!(policy.admit(&Identity { groups: &groups }), None);
+        let access = policy.admit(&Identity { groups: &groups }).unwrap();
+
+        assert_eq!(access.cluster("prod").unwrap().role_names(), ["admin"]);
+    }
+
+    #[test]
+    fn a_binding_admits_a_member_of_any_of_its_groups() {
+        let policy = table(
+            &[("viewer", &[])],
+            vec![binding(&["ops", "sre"], "viewer", None)],
+        );
+
+        let viewer = EffectiveAccess::Granted(vec![Grant::new("viewer", &[], None)]);
+
+        assert!(admit(&policy, &["ops"]).is_some());
+        assert!(admit(&policy, &["sre"]).is_some());
+        assert_eq!(
+            admit(&policy, &["sre", "ops"]),
+            Some(viewer),
+            "both groups reach one binding, which grants once"
+        );
     }
 
     #[test]
