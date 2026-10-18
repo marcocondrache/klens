@@ -19,7 +19,7 @@ import { TAIL_BUFFER, useTail, type TailFilter } from "@/lib/api/tail";
 import type { TopicDetail } from "@/lib/api/types";
 import { formatNumber } from "@/lib/format";
 
-import { RecordModeSwitch, type RecordMode } from "./record-mode";
+import type { RecordMode } from "./record-mode";
 import { filterPartitions, type RecordFilter } from "./record-filter";
 import { RecordView, type RecordSource } from "./record-view";
 
@@ -115,6 +115,9 @@ export function LiveRecords({
           </Alert>
         ) : null
       }
+      mode="LIVE"
+      onModeChange={onModeChange}
+      tailStatus={tail.status}
       status={tail.skipped > 0 ? <SkippedBadge skipped={tail.skipped} /> : null}
       actions={
         <>
@@ -137,7 +140,6 @@ export function LiveRecords({
           >
             <BrushCleaningIcon className="size-3.5" />
           </IconButton>
-          <RecordModeSwitch value="LIVE" onChange={onModeChange} status={tail.status} />
         </>
       }
       emptyState={
