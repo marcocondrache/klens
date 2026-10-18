@@ -323,6 +323,27 @@ async fn an_unknown_api_path_is_a_json_error_with_auth_on() {
 }
 
 #[tokio::test]
+async fn no_page_may_frame_the_ui_or_the_api() {
+    let app = TestApp::local().await;
+
+    for path in ["/", "/clusters/local/topics", "/api/clusters"] {
+        let request = Request::get(path)
+            .header(header::HOST, "localhost")
+            .body(Body::empty())
+            .expect("request");
+        let response = app.send_through_router(request).await;
+
+        let headers = response.headers();
+        assert_eq!(
+            headers[header::CONTENT_SECURITY_POLICY],
+            "frame-ancestors 'none'",
+            "{path}"
+        );
+        assert_eq!(headers[header::X_FRAME_OPTIONS], "DENY", "{path}");
+    }
+}
+
+#[tokio::test]
 async fn every_route_refuses_a_host_off_the_list_while_auth_is_off() {
     let app = TestApp::of([FakeCluster::local()])
         .writable(&["local"])

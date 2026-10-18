@@ -13,6 +13,8 @@ Without `auth`, klens has no idea who is asking, so its only protection is that 
 
 `/health` and `/ready` skip the check, because probes and load balancers name an IP address. `/mcp` skips it too, for the reasons in [the MCP ceiling](#the-mcp-ceiling).
 
+The UI and `/api` also refuse to load in a frame, so another site cannot show klens inside its own page and steer a click onto a write.
+
 ## Sign-in
 
 With `auth`, every request to the UI and `/api` needs a session from an OpenID Connect sign-in. The session cookie is `HttpOnly` and `SameSite=Lax`, and `Secure` when the redirect URI uses `https`. A session lasts until its ID token expires or `max_age` passes, and lives in process memory, so a restart signs everyone out. klens signs session cookies with a key it creates at startup, so no key needs to be configured or kept secret.
