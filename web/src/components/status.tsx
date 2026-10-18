@@ -134,25 +134,25 @@ export function LagValue({ lag, complete = true }: { lag: number | null; complet
   );
 }
 
-export function SizeValue({ bytes, className }: { bytes: number | null; className?: string }) {
+export function SizeValue({ bytes }: { bytes: number | null }) {
   if (bytes === null) {
-    return <UnknownSize className={className} />;
+    return <UnknownSize />;
   }
 
-  return <span className={cn("numeric", className)}>{formatBytes(bytes)}</span>;
+  return <span className="numeric">{formatBytes(bytes)}</span>;
 }
 
-function UnknownSize({ className }: { className?: string }) {
+function UnknownSize() {
   const { data: health } = useClusterHealth(useClusterName());
   const lane = health?.logDirs;
 
   if (isLogDirsPending(lane)) {
-    return <PendingValue label="Fetching log dirs" className={cn("ml-auto block", className)} />;
+    return <PendingValue label="Fetching log dirs" className="ml-auto block" />;
   }
 
   return (
     <span
-      className={cn("text-muted-foreground/60", className)}
+      className="text-muted-foreground/60"
       title={lane?.lastError ?? "No log dir reports this yet"}
     >
       —

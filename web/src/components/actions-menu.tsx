@@ -8,22 +8,14 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
-export function ActionsMenu({
-  label,
-  size = "icon",
-  children,
-}: {
-  label: string;
-  size?: "icon" | "icon-xs";
-  children: ReactNode;
-}) {
+export function ActionsMenu({ label, children }: { label: string; children: ReactNode }) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
         render={
           <Button
-            variant={size === "icon" ? "outline" : "ghost"}
-            size={size}
+            variant="outline"
+            size="icon"
             aria-label={label}
             className="text-muted-foreground hover:text-foreground aria-expanded:text-foreground"
           />

@@ -44,7 +44,6 @@ export type {
   ScramMechanism,
   ScramUser,
   SetScramCredential,
-  SubjectDetail,
   SubjectRow,
   TopicDetail,
   TopicGroupRow,
