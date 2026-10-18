@@ -91,7 +91,7 @@ impl DecodedPayload {
 pub struct PayloadSlot {
     pub raw: Bytes,
     pub fallback_schema_id: Option<i32>,
-    pub decoded: Option<DecodedPayload>,
+    pub json: Option<serde_json::Value>,
 }
 
 impl PayloadSlot {
@@ -99,21 +99,27 @@ impl PayloadSlot {
         Self {
             raw,
             fallback_schema_id,
-            decoded: None,
+            json: None,
         }
     }
 
     pub fn take(self) -> DecodedPayload {
-        match self.decoded {
-            Some(decoded) => decoded,
+        match self.json {
+            Some(json) => DecodedPayload::decoded(self.raw, json),
             None => DecodedPayload::raw(self.raw),
         }
     }
 }
 
+/// Decoding splits in two so that the I/O stays on the runtime and the CPU
+/// work can move to the blocking pool.
 #[async_trait]
 pub trait PayloadCodec: Send + Sync {
-    async fn decode_batch(&self, slots: &mut [PayloadSlot]);
+    async fn resolve(&self, slots: &[PayloadSlot]) -> Box<dyn ResolvedCodec>;
+}
+
+pub trait ResolvedCodec: Send {
+    fn decode(&self, slots: &mut [PayloadSlot]);
 }
 
 /// A v1 prefix names a 16-byte GUID rather than a numeric id, so a payload

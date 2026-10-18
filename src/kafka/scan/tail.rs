@@ -13,7 +13,7 @@ use super::Record;
 use super::batch::RecordBatch;
 use super::cursor::CursorDirection;
 use super::filter::CompiledFilter;
-use super::pipeline::{Kept, RecordPipeline, Screen};
+use super::pipeline::{Kept, RecordPipeline};
 use super::query::RecordOrder;
 use super::read::resolve_partitions;
 use super::session::{RawRecord, topic_obfuscator};
@@ -157,43 +157,24 @@ impl Tail {
         self.flushed = Some(Instant::now());
         skipped += batch.displaced() as u64;
 
-        let mut records = self.pipeline.decode_deferred(batch.into_sorted()).await;
-        records.sort_unstable_by(|left, right| {
+        let mut page = batch.into_sorted();
+        page.sort_unstable_by(|left, right| {
             left.raw()
                 .sort_key()
                 .cmp_for_order(&right.raw().sort_key(), RecordOrder::Oldest)
         });
         Ok(TailBatch {
-            records: records
-                .into_iter()
-                .map(|record| record.into_record(&self.topic))
-                .collect(),
+            records: self.pipeline.render(page, &self.topic).await,
             skipped,
         })
     }
 
     async fn ingest(&self, polled: Vec<RawRecord>, batch: &mut RecordBatch<Kept>) -> u64 {
-        let mut rejected = 0;
-        let mut candidates = Vec::new();
-
-        for mut raw in polled {
-            let sort = raw.sort_key();
-            if !batch.admits(&sort) {
-                rejected += 1;
-                continue;
-            }
-
-            match self.pipeline.screen(&mut raw) {
-                None => continue,
-                Some(Screen::Deferred) => batch.push(sort, Kept::Pending(raw)),
-                Some(Screen::NeedsPayload) => candidates.push((sort, raw)),
-            }
-        }
-
-        for (sort, kept) in self.pipeline.decode_and_filter(candidates).await {
-            batch.push(sort, kept);
-        }
-        rejected
+        let ranked = polled
+            .into_iter()
+            .map(|raw| (raw.sort_key(), raw))
+            .collect();
+        self.pipeline.admit(batch, ranked).await
     }
 
     async fn skip_ahead(&self) -> Result<u64, KafkaError> {
