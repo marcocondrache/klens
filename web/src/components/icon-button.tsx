@@ -10,6 +10,7 @@ export const REVEAL_ON_ROW =
 export function IconButton({
   label,
   tooltip = label,
+  variant = "ghost",
   size = "icon-xs",
   reveal = false,
   className,
@@ -18,6 +19,7 @@ export function IconButton({
 }: Omit<ComponentProps<typeof Button>, "variant" | "size"> & {
   label: string;
   tooltip?: ReactNode;
+  variant?: "ghost" | "outline";
   size?: "icon-xs" | "icon-sm" | "icon";
   reveal?: boolean;
 }) {
@@ -26,7 +28,7 @@ export function IconButton({
       <TooltipTrigger
         render={
           <Button
-            variant="ghost"
+            variant={variant}
             size={size}
             aria-label={label}
             className={cn("text-muted-foreground", reveal && REVEAL_ON_ROW, className)}

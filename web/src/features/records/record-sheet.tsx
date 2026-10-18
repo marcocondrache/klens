@@ -101,35 +101,39 @@ export function RecordSheet({
                 {address.offset}
               </SheetTitle>
               <CopyButton value={link(address)} label="Copy link to this record" />
-              {canDuplicate ? (
-                <ProduceRecordSheet
-                  cluster={cluster}
-                  topic={topic}
-                  draft={duplicate ?? undefined}
-                  trigger={duplicate ? <IconButton label="Duplicate this record" /> : null}
-                  onProduced={open}
-                >
-                  <CopyPlusIcon />
-                </ProduceRecordSheet>
-              ) : null}
-              {canDelete ? (
-                <>
-                  <IconButton
-                    label="Delete the records before this one"
-                    onClick={() => setCutting(true)}
-                  >
-                    <ListXIcon />
-                  </IconButton>
-                  <DeleteRecordsDialog
-                    cluster={cluster}
-                    topic={topic}
-                    cut={{ partition: address.partition, before: address.offset }}
-                    open={cutting}
-                    onOpenChange={setCutting}
-                  />
-                </>
-              ) : null}
               {selectedObfuscated ? <ObfuscatedBadge /> : null}
+              {canDuplicate || canDelete ? (
+                <div className="ml-auto flex shrink-0 items-center gap-1">
+                  {canDuplicate ? (
+                    <ProduceRecordSheet
+                      cluster={cluster}
+                      topic={topic}
+                      draft={duplicate ?? undefined}
+                      trigger={duplicate ? <IconButton label="Duplicate this record" /> : null}
+                      onProduced={open}
+                    >
+                      <CopyPlusIcon />
+                    </ProduceRecordSheet>
+                  ) : null}
+                  {canDelete ? (
+                    <>
+                      <IconButton
+                        label="Delete the records before this one"
+                        onClick={() => setCutting(true)}
+                      >
+                        <ListXIcon />
+                      </IconButton>
+                      <DeleteRecordsDialog
+                        cluster={cluster}
+                        topic={topic}
+                        cut={{ partition: address.partition, before: address.offset }}
+                        open={cutting}
+                        onOpenChange={setCutting}
+                      />
+                    </>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
             <SheetDescription>
               {selectedRecord

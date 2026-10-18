@@ -31,7 +31,6 @@ interface RecordTableProps<TData extends RowData> {
   columns: Array<ColumnDef<DataTableFeatures, TData>>;
   data: TData[];
   getRowId: (row: TData) => string;
-  toolbar?: ReactNode;
   onRowClick?: (row: TData) => void;
   selectedKey?: string;
   loading?: boolean;
@@ -49,7 +48,6 @@ export function RecordTable<TData extends RowData>({
   columns,
   data,
   getRowId,
-  toolbar,
   onRowClick,
   selectedKey,
   loading = false,
@@ -121,107 +119,104 @@ export function RecordTable<TData extends RowData>({
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3">
-      {toolbar ? <div className="flex shrink-0 flex-wrap items-center gap-2">{toolbar}</div> : null}
-      <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border">
-        {refreshing ? <RefreshBar className="absolute inset-x-0 top-0 z-20" /> : null}
-        <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto">
-          <Table
-            aria-busy={loading || refreshing || isFetchingNextPage || undefined}
-            className="table-fixed"
-            style={{ minWidth: minTableWidth(leafColumns) }}
-          >
-            <colgroup>
-              {leafColumns.map((column) => (
-                <col key={column.id} style={{ width: columnWidth(column) }} />
-              ))}
-            </colgroup>
-            <TableHeader className="[&_tr]:border-b-0!">
-              {table.getHeaderGroups().map((headerGroup) => (
-                <TableRow key={headerGroup.id}>
-                  {headerGroup.headers.map((header) => (
-                    <TableHead
-                      key={header.id}
+    <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border">
+      {refreshing ? <RefreshBar className="absolute inset-x-0 top-0 z-20" /> : null}
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto">
+        <Table
+          aria-busy={loading || refreshing || isFetchingNextPage || undefined}
+          className="table-fixed"
+          style={{ minWidth: minTableWidth(leafColumns) }}
+        >
+          <colgroup>
+            {leafColumns.map((column) => (
+              <col key={column.id} style={{ width: columnWidth(column) }} />
+            ))}
+          </colgroup>
+          <TableHeader className="[&_tr]:border-b-0!">
+            {table.getHeaderGroups().map((headerGroup) => (
+              <TableRow key={headerGroup.id}>
+                {headerGroup.headers.map((header) => (
+                  <TableHead
+                    key={header.id}
+                    className={cn(
+                      "sticky top-0 z-10 bg-subtle text-xs text-muted-foreground shadow-[inset_0_-1px_0_0_var(--color-border)]",
+                      CELL,
+                      header.column.columnDef.meta?.align === "right" && "text-right",
+                    )}
+                  >
+                    {header.isPlaceholder ? null : <table.FlexRender header={header} />}
+                  </TableHead>
+                ))}
+              </TableRow>
+            ))}
+          </TableHeader>
+          <TableBody>
+            {loading || awaitingFirstPage ? (
+              skeletonRows(SKELETON_ROWS)
+            ) : rows.length === 0 ? (
+              <TableRow className="hover:bg-transparent">
+                <TableCell colSpan={leafColumns.length} className="p-0">
+                  {tablePlaceholder(error ?? emptyState)}
+                </TableCell>
+              </TableRow>
+            ) : (
+              <>
+                {padTop > 0 ? <tr aria-hidden style={{ height: padTop }} /> : null}
+                {virtualRows.map((item) => {
+                  const row = rows[item.index];
+
+                  return (
+                    <TableRow
+                      key={row.id}
+                      data-index={item.index}
+                      ref={virtualizer.measureElement}
+                      data-state={selectedKey === row.id ? "selected" : undefined}
+                      {...(onRowClick ? clickableRowProps(() => onRowClick(row.original)) : {})}
                       className={cn(
-                        "sticky top-0 z-10 bg-subtle text-xs text-muted-foreground shadow-[inset_0_-1px_0_0_var(--color-border)]",
-                        CELL,
-                        header.column.columnDef.meta?.align === "right" && "text-right",
+                        "group/row border-border/70 transition-[background-color,opacity] duration-75",
+                        onRowClick && CLICKABLE_ROW,
+                        stale && "opacity-50",
                       )}
                     >
-                      {header.isPlaceholder ? null : <table.FlexRender header={header} />}
-                    </TableHead>
-                  ))}
-                </TableRow>
-              ))}
-            </TableHeader>
-            <TableBody>
-              {loading || awaitingFirstPage ? (
-                skeletonRows(SKELETON_ROWS)
-              ) : rows.length === 0 ? (
-                <TableRow className="hover:bg-transparent">
-                  <TableCell colSpan={leafColumns.length} className="p-0">
-                    {tablePlaceholder(error ?? emptyState)}
-                  </TableCell>
-                </TableRow>
-              ) : (
-                <>
-                  {padTop > 0 ? <tr aria-hidden style={{ height: padTop }} /> : null}
-                  {virtualRows.map((item) => {
-                    const row = rows[item.index];
+                      {row.getAllCells().map((cell) => {
+                        const meta = cell.column.columnDef.meta;
 
-                    return (
-                      <TableRow
-                        key={row.id}
-                        data-index={item.index}
-                        ref={virtualizer.measureElement}
-                        data-state={selectedKey === row.id ? "selected" : undefined}
-                        {...(onRowClick ? clickableRowProps(() => onRowClick(row.original)) : {})}
-                        className={cn(
-                          "group/row border-border/70 transition-[background-color,opacity] duration-75",
-                          onRowClick && CLICKABLE_ROW,
-                          stale && "opacity-50",
-                        )}
-                      >
-                        {row.getAllCells().map((cell) => {
-                          const meta = cell.column.columnDef.meta;
-
-                          return (
-                            <TableCell
-                              key={cell.id}
-                              className={cn(
-                                "overflow-hidden py-2.5 text-ellipsis",
-                                CELL,
-                                meta?.align === "right" && "text-right numeric",
-                                meta?.className,
-                              )}
-                            >
-                              <table.FlexRender cell={cell} />
-                            </TableCell>
-                          );
-                        })}
-                      </TableRow>
-                    );
-                  })}
-                  {padBottom > 0 ? <tr aria-hidden style={{ height: padBottom }} /> : null}
-                  {isFetchNextPageError ? (
-                    <TableRow className="border-border/70 hover:bg-transparent">
-                      <TableCell colSpan={leafColumns.length} className="h-10 p-0">
-                        <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
-                          Couldn't load more records.
-                          <Button variant="outline" size="xs" onClick={() => fetchNextPage?.()}>
-                            Retry
-                          </Button>
-                        </div>
-                      </TableCell>
+                        return (
+                          <TableCell
+                            key={cell.id}
+                            className={cn(
+                              "overflow-hidden py-2.5 text-ellipsis",
+                              CELL,
+                              meta?.align === "right" && "text-right numeric",
+                              meta?.className,
+                            )}
+                          >
+                            <table.FlexRender cell={cell} />
+                          </TableCell>
+                        );
+                      })}
                     </TableRow>
-                  ) : showLoader ? (
-                    skeletonRows(LOADER_ROWS)
-                  ) : null}
-                </>
-              )}
-            </TableBody>
-          </Table>
-        </div>
+                  );
+                })}
+                {padBottom > 0 ? <tr aria-hidden style={{ height: padBottom }} /> : null}
+                {isFetchNextPageError ? (
+                  <TableRow className="border-border/70 hover:bg-transparent">
+                    <TableCell colSpan={leafColumns.length} className="h-10 p-0">
+                      <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+                        Couldn't load more records.
+                        <Button variant="outline" size="xs" onClick={() => fetchNextPage?.()}>
+                          Retry
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ) : showLoader ? (
+                  skeletonRows(LOADER_ROWS)
+                ) : null}
+              </>
+            )}
+          </TableBody>
+        </Table>
       </div>
     </div>
   );
