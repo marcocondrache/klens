@@ -172,14 +172,7 @@ impl TestApp {
     }
 
     pub async fn open(&self, path: &str) -> Live {
-        let response = self.send(get_request(path)).await;
-        assert_eq!(response.status(), StatusCode::OK, "GET {path} did not open");
-        Live {
-            path: path.to_owned(),
-            headers: response.headers().clone(),
-            body: response.into_body().into_data_stream(),
-            buffer: String::new(),
-        }
+        Live::open(path, self.send(get_request(path)).await)
     }
 
     fn rig_of(&self, cluster: &FakeCluster) -> Rig {
@@ -349,6 +342,16 @@ pub struct Event {
 }
 
 impl Live {
+    pub fn open(path: &str, response: Response) -> Self {
+        assert_eq!(response.status(), StatusCode::OK, "GET {path} did not open");
+        Self {
+            path: path.to_owned(),
+            headers: response.headers().clone(),
+            body: response.into_body().into_data_stream(),
+            buffer: String::new(),
+        }
+    }
+
     pub async fn next(&mut self) -> Event {
         loop {
             if let Some(event) = self.parse() {

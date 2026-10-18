@@ -15,6 +15,7 @@ use sha2::{Digest, Sha256};
 use tower_sessions::cookie::time::Duration;
 use tower_sessions::cookie::{Key, SameSite};
 use tower_sessions::service::SignedCookie;
+use tower_sessions::session::Id;
 use tower_sessions::{Expiry, SessionManagerLayer};
 use ts_rs::TS;
 
@@ -82,16 +83,19 @@ impl SessionUser {
 pub struct AuthState {
     backend: AuthBackend,
     policy: Arc<AccessPolicy>,
+    sessions: ExpiringStore,
     session_layer: SessionLayer,
     login_timeout: Duration,
 }
 
 impl AuthState {
     pub fn disabled() -> Self {
+        let sessions = ExpiringStore::default();
         Self {
             backend: AuthBackend::disabled(),
             policy: Arc::new(AccessPolicy::Open),
-            session_layer: session_layer(false, Key::generate()),
+            session_layer: session_layer(sessions.clone(), false, Key::generate()),
+            sessions,
             login_timeout: Duration::ZERO,
         }
     }
@@ -105,13 +109,16 @@ impl AuthState {
     }
 
     fn enabled(flow: Arc<dyn OidcFlow>, auth: &config::Auth) -> Self {
+        let sessions = ExpiringStore::default();
         Self {
             backend: AuthBackend::enabled(flow),
             policy: Arc::new(AccessPolicy::from_roles(auth.roles.as_ref())),
             session_layer: session_layer(
+                sessions.clone(),
                 auth.oidc.redirect_uri.url().scheme() == "https",
                 Key::generate(),
             ),
+            sessions,
             login_timeout: Duration::try_from(auth.session.login_timeout).unwrap_or(Duration::MAX),
         }
     }
@@ -145,8 +152,11 @@ impl AuthState {
     }
 
     fn guard(&self, session: &AuthSession) -> SessionGuard {
-        let holder = match &session.user {
-            Some(user) if self.is_enabled() => Holder::Session(user.sub.clone()),
+        let holder = match (&session.user, session.session.id()) {
+            (Some(user), Some(id)) if self.is_enabled() => Holder::Session {
+                id,
+                subject: user.sub.clone(),
+            },
             _ => Holder::Nobody,
         };
         SessionGuard {
@@ -165,7 +175,7 @@ pub struct SessionGuard {
 #[derive(Clone)]
 enum Holder {
     Nobody,
-    Session(String),
+    Session { id: Id, subject: String },
     Fixed(EffectiveAccess),
 }
 
@@ -180,7 +190,9 @@ impl SessionGuard {
     pub fn revalidate(&self) -> Option<EffectiveAccess> {
         match &self.holder {
             Holder::Nobody => (!self.auth.is_enabled()).then_some(EffectiveAccess::Unrestricted),
-            Holder::Session(subject) => self
+            // Logout deletes the session record but leaves the user cached by subject.
+            Holder::Session { id, .. } if !self.auth.sessions.contains(id) => None,
+            Holder::Session { subject, .. } => self
                 .auth
                 .backend
                 .with_live_user(subject, |user| self.auth.access_from_user(user))
@@ -192,7 +204,7 @@ impl SessionGuard {
     pub fn subject(&self) -> Option<&str> {
         match &self.holder {
             Holder::Nobody | Holder::Fixed(_) => None,
-            Holder::Session(subject) => Some(subject),
+            Holder::Session { subject, .. } => Some(subject),
         }
     }
 }
@@ -426,8 +438,8 @@ struct LoginPending {
     pkce_verifier: String,
 }
 
-fn session_layer(secure: bool, key: Key) -> SessionLayer {
-    SessionManagerLayer::new(ExpiringStore::default())
+fn session_layer(sessions: ExpiringStore, secure: bool, key: Key) -> SessionLayer {
+    SessionManagerLayer::new(sessions)
         .with_name(SESSION_COOKIE)
         .with_http_only(true)
         // Lax so the IdP redirect back to /api/auth/callback still sends the session.
@@ -443,7 +455,8 @@ mod tests {
 
     use super::testing::{Browser, FakeOidc};
     use super::*;
-    use crate::testing::{LogCapture, yaml};
+    use crate::kafka::store::Change;
+    use crate::testing::{FakeCluster, LogCapture, TestApp, yaml};
 
     #[test]
     fn the_session_hash_follows_every_claim_it_binds() {
@@ -655,6 +668,25 @@ mod tests {
         assert!(callback.set_cookie().starts_with(SESSION_COOKIE));
         assert_eq!(browser.get("/api/clusters").await.status, StatusCode::OK);
         logs.assert_contains(r#"oidc login succeeded sub="user-1""#);
+    }
+
+    #[tokio::test]
+    async fn logging_out_ends_the_streams_the_session_opened() {
+        let app = TestApp::of([FakeCluster::local()])
+            .auth(AuthState::enabled_for_tests())
+            .build();
+        let mut browser = Browser::serving(app.state().clone());
+        browser.log_in("test-code").await;
+        let mut updates = browser.open("/api/clusters/local/updates").await;
+
+        app.store().bus.publish(Change::Acls);
+        assert_eq!(updates.next().await.name, "acls");
+
+        let logout = browser.post("/api/auth/logout").await;
+        app.store().bus.publish(Change::Acls);
+
+        assert_eq!(logout.status, StatusCode::NO_CONTENT);
+        assert_eq!(updates.next().await.data["code"], "SESSION_EXPIRED");
     }
 
     #[tokio::test]

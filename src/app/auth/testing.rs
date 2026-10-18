@@ -14,13 +14,16 @@ use serde_json::Value;
 use tower::ServiceExt as _;
 use tower_sessions::cookie::Key;
 use tower_sessions::cookie::time::Duration;
+use tower_sessions::session::Id;
 
 use super::access::{AccessPolicy, ClusterScope, EffectiveAccess, Grant, PrivilegeSet};
 use super::backend::AuthBackend;
 use super::oidc::{OidcError, OidcFlow};
+use super::store::ExpiringStore;
 use super::{AuthSession, AuthState, Holder, SessionGuard, SessionUser, session_layer};
 use crate::AppState;
 use crate::app::Limits;
+use crate::app::testing::Live;
 use crate::config::{Config, Tuning};
 use crate::kafka::Clusters;
 use crate::testing::FakeCluster;
@@ -31,10 +34,12 @@ impl AuthState {
     }
 
     pub fn enabled_for_tests_with(flow: FakeOidc, policy: AccessPolicy) -> Self {
+        let sessions = ExpiringStore::default();
         Self {
             backend: AuthBackend::enabled(Arc::new(flow)),
             policy: Arc::new(policy),
-            session_layer: session_layer(false, Key::generate()),
+            session_layer: session_layer(sessions.clone(), false, Key::generate()),
+            sessions,
             login_timeout: Duration::minutes(10),
         }
     }
@@ -51,7 +56,10 @@ impl SessionGuard {
     pub fn expired() -> Self {
         Self {
             auth: AuthState::enabled_for_tests(),
-            holder: Holder::Session("gone".to_owned()),
+            holder: Holder::Session {
+                id: Id::default(),
+                subject: "gone".to_owned(),
+            },
         }
     }
 }
@@ -161,11 +169,14 @@ pub struct Browser {
 
 impl Browser {
     pub fn new(auth: AuthState) -> Self {
-        let state = AppState::new(
+        Self::serving(AppState::new(
             Clusters::from_sessions(vec![FakeCluster::local()]),
             auth,
             Limits::new(&Tuning::default()),
-        );
+        ))
+    }
+
+    pub fn serving(state: AppState) -> Self {
         Self {
             app: crate::app::router(state, &Config::default().allowed_hosts),
             jar: BTreeMap::new(),
@@ -175,6 +186,16 @@ impl Browser {
     pub async fn get(&mut self, path: &str) -> Page {
         self.send(Request::get(path).body(Body::empty()).expect("request"))
             .await
+    }
+
+    pub async fn post(&mut self, path: &str) -> Page {
+        self.send(Request::post(path).body(Body::empty()).expect("request"))
+            .await
+    }
+
+    pub async fn open(&mut self, path: &str) -> Live {
+        let request = Request::get(path).body(Body::empty()).expect("request");
+        Live::open(path, self.respond(request).await)
     }
 
     pub async fn impersonate(&mut self, user: &SessionUser) {
@@ -209,7 +230,21 @@ impl Browser {
             .await
     }
 
-    pub async fn send(&mut self, mut request: Request<Body>) -> Page {
+    pub async fn send(&mut self, request: Request<Body>) -> Page {
+        let response = self.respond(request).await;
+        let status = response.status();
+        let headers = response.headers().clone();
+        let body = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("body");
+        Page {
+            status,
+            headers,
+            body,
+        }
+    }
+
+    async fn respond(&mut self, mut request: Request<Body>) -> Response {
         request
             .headers_mut()
             .entry(header::HOST)
@@ -235,16 +270,7 @@ impl Browser {
             }
         }
 
-        let status = response.status();
-        let headers = response.headers().clone();
-        let body = to_bytes(response.into_body(), usize::MAX)
-            .await
-            .expect("body");
-        Page {
-            status,
-            headers,
-            body,
-        }
+        response
     }
 }
 
