@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import type { StaticImageData } from 'next/image';
 import { cn } from '@/lib/cn';
+import { DITHER_CELL_PX } from './dither';
 import dunes from './scenery/dunes.png';
 import mist from './scenery/mist.png';
 import night from './scenery/night.png';
@@ -10,8 +11,6 @@ import sea from './scenery/sea.png';
 const scenes = { dunes, mist, night, ridges, sea } satisfies Record<string, StaticImageData>;
 
 export type Scene = keyof typeof scenes;
-
-const CELL_PX = 3;
 
 export function Scenery({
   scene,
@@ -38,7 +37,7 @@ export function Scenery({
         className="absolute inset-0 -z-1 bg-no-repeat [image-rendering:pixelated]"
         style={{
           backgroundImage: `url(${image.src})`,
-          backgroundSize: `${image.width * CELL_PX}px ${image.height * CELL_PX}px`,
+          backgroundSize: `${image.width * DITHER_CELL_PX}px ${image.height * DITHER_CELL_PX}px`,
           backgroundPosition: position,
         }}
       />

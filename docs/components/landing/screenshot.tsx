@@ -13,6 +13,7 @@ export function Screenshot({ className }: { className?: string }) {
         src={topicsLight}
         alt={alt}
         unoptimized
+        loading="lazy"
         fetchPriority="high"
         className="w-full dark:hidden"
       />
@@ -20,6 +21,7 @@ export function Screenshot({ className }: { className?: string }) {
         src={topicsDark}
         alt={alt}
         unoptimized
+        loading="lazy"
         fetchPriority="high"
         className="hidden w-full dark:block"
       />

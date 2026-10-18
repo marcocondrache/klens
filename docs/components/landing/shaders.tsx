@@ -4,6 +4,7 @@ import { type RefObject, useEffect, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import type { GrainGradientParams } from '@paper-design/shaders-react';
 import { cn } from '@/lib/cn';
+import { DITHER_CELL_PX } from './dither';
 import { useMotionAllowed } from './motion';
 import { useInView } from './use-in-view';
 
@@ -35,7 +36,7 @@ export function Warp({ className }: { className?: string }) {
           colorFront={colors[0]}
           shape="warp"
           type="4x4"
-          size={3}
+          size={DITHER_CELL_PX}
           speed={animate ? 0.4 : 0}
           minPixelRatio={1}
         />

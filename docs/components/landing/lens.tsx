@@ -2,12 +2,12 @@
 
 import { type ComponentProps, useEffect, useRef } from 'react';
 import { cn } from '@/lib/cn';
+import { DITHER_CELL_PX } from './dither';
 import { useMotionAllowed } from './motion';
 import { useInView } from './use-in-view';
 
 const BAYER_4X4 = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5].map((v) => (v + 0.5) / 16);
 
-const CELL_PX = 3;
 const TURN_MS = 16_000;
 const RESTING_ANGLE = (-3 * Math.PI) / 4;
 
@@ -116,8 +116,8 @@ export function Lens({ className, ...props }: ComponentProps<'canvas'>) {
     };
 
     const resize = () => {
-      const cols = Math.max(1, Math.floor(canvas.clientWidth / CELL_PX));
-      const rows = Math.max(1, Math.floor(canvas.clientHeight / CELL_PX));
+      const cols = Math.max(1, Math.floor(canvas.clientWidth / DITHER_CELL_PX));
+      const rows = Math.max(1, Math.floor(canvas.clientHeight / DITHER_CELL_PX));
 
       canvas.width = cols;
       canvas.height = rows;
