@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use axum::body::{Body, Bytes, to_bytes};
@@ -13,11 +14,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tower::ServiceExt as _;
 use tower_sessions::cookie::Key;
-use tower_sessions::cookie::time::Duration;
 use tower_sessions::session::Id;
 
 use super::access::{AccessPolicy, ClusterScope, EffectiveAccess, Grant, PrivilegeSet};
 use super::backend::AuthBackend;
+use super::login::LoginCookie;
 use super::oidc::{OidcError, OidcFlow};
 use super::store::ExpiringStore;
 use super::{AuthSession, AuthState, Holder, SessionGuard, SessionUser, session_layer};
@@ -40,7 +41,7 @@ impl AuthState {
             policy: Arc::new(policy),
             session_layer: session_layer(sessions.clone(), false, Key::generate()),
             sessions,
-            login_timeout: Duration::minutes(10),
+            login_cookie: LoginCookie::new(false, Duration::from_secs(10 * 60)),
         }
     }
 }
@@ -183,6 +184,11 @@ impl Browser {
         }
     }
 
+    /// Keeps the cookies, as a browser does when klens restarts.
+    pub fn restart(&mut self, auth: AuthState) {
+        self.app = Self::new(auth).app;
+    }
+
     pub async fn get(&mut self, path: &str) -> Page {
         self.send(Request::get(path).body(Body::empty()).expect("request"))
             .await
@@ -220,6 +226,10 @@ impl Browser {
 
     pub async fn log_in(&mut self, code: &str) -> Page {
         let login = self.get("/api/auth/login").await;
+        self.return_from_provider(&login, code).await
+    }
+
+    pub async fn return_from_provider(&mut self, login: &Page, code: &str) -> Page {
         let state = url::Url::parse(login.location())
             .expect("the login redirect is a url")
             .query_pairs()
@@ -289,12 +299,16 @@ impl Page {
             .unwrap_or_else(|| panic!("a {} page with no location", self.status))
     }
 
-    #[track_caller]
-    pub fn set_cookie(&self) -> &str {
+    pub fn cookie(&self, name: &str) -> Option<&str> {
         self.headers
-            .get(header::SET_COOKIE)
-            .and_then(|cookie| cookie.to_str().ok())
-            .unwrap_or_else(|| panic!("a {} page set no cookie", self.status))
+            .get_all(header::SET_COOKIE)
+            .iter()
+            .filter_map(|cookie| cookie.to_str().ok())
+            .find(|cookie| {
+                cookie
+                    .strip_prefix(name)
+                    .is_some_and(|rest| rest.starts_with('='))
+            })
     }
 
     #[track_caller]

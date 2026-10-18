@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use axum::extract::State;
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
@@ -25,6 +25,7 @@ use crate::config;
 
 pub(crate) mod access;
 mod backend;
+mod login;
 mod oidc;
 mod store;
 #[cfg(test)]
@@ -32,10 +33,9 @@ pub(crate) mod testing;
 
 use access::{AccessPolicy, EffectiveAccess, Identity};
 use backend::{AuthBackend, OidcCredentials};
+use login::{LoginCookie, LoginPending};
 use oidc::{Oidc, OidcFlow};
 use store::ExpiringStore;
-
-const LOGIN_PENDING_KEY: &str = "klens.login_pending";
 
 const SESSION_COOKIE: &str = "klens_session";
 
@@ -85,7 +85,7 @@ pub struct AuthState {
     policy: Arc<AccessPolicy>,
     sessions: ExpiringStore,
     session_layer: SessionLayer,
-    login_timeout: Duration,
+    login_cookie: LoginCookie,
 }
 
 impl AuthState {
@@ -96,7 +96,7 @@ impl AuthState {
             policy: Arc::new(AccessPolicy::Open),
             session_layer: session_layer(sessions.clone(), false, Key::generate()),
             sessions,
-            login_timeout: Duration::ZERO,
+            login_cookie: LoginCookie::new(false, std::time::Duration::ZERO),
         }
     }
 
@@ -110,16 +110,13 @@ impl AuthState {
 
     fn enabled(flow: Arc<dyn OidcFlow>, auth: &config::Auth) -> Self {
         let sessions = ExpiringStore::default();
+        let secure = auth.oidc.redirect_uri.url().scheme() == "https";
         Self {
             backend: AuthBackend::enabled(flow),
             policy: Arc::new(AccessPolicy::from_roles(auth.roles.as_ref())),
-            session_layer: session_layer(
-                sessions.clone(),
-                auth.oidc.redirect_uri.url().scheme() == "https",
-                Key::generate(),
-            ),
+            session_layer: session_layer(sessions.clone(), secure, Key::generate()),
             sessions,
-            login_timeout: Duration::try_from(auth.session.login_timeout).unwrap_or(Duration::MAX),
+            login_cookie: LoginCookie::new(secure, auth.session.login_timeout),
         }
     }
 
@@ -276,7 +273,7 @@ async fn me(State(state): State<AppState>, auth_session: AuthSession) -> impl In
     })
 }
 
-async fn login(State(state): State<AppState>, auth_session: AuthSession) -> Response {
+async fn login(State(state): State<AppState>) -> Response {
     let Some(flow) = state.auth.flow() else {
         return StatusCode::NOT_FOUND.into_response();
     };
@@ -284,28 +281,13 @@ async fn login(State(state): State<AppState>, auth_session: AuthSession) -> Resp
     let (pkce_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
     let csrf = CsrfToken::new_random();
     let nonce = Nonce::new_random();
-    let authorize_url = flow.authorize_url(csrf.clone(), nonce.clone(), pkce_challenge);
 
-    let pending = LoginPending {
-        state: csrf.secret().to_owned(),
-        nonce: nonce.secret().to_owned(),
-        pkce_verifier: pkce_verifier.secret().to_owned(),
-    };
-
-    auth_session
-        .session
-        .set_expiry(Some(Expiry::OnInactivity(state.auth.login_timeout)));
-
-    if let Err(error) = auth_session
-        .session
-        .insert(LOGIN_PENDING_KEY, pending)
-        .await
-    {
-        tracing::error!(%error, "failed to store oidc login state");
-        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-    }
-
-    Redirect::to(authorize_url.as_str()).into_response()
+    let jar = state
+        .auth
+        .login_cookie
+        .start(Timestamp::now(), &csrf, &nonce, &pkce_verifier);
+    let authorize_url = flow.authorize_url(csrf, nonce, pkce_challenge);
+    (jar, Redirect::to(authorize_url.as_str())).into_response()
 }
 
 #[derive(Debug, Deserialize)]
@@ -318,43 +300,44 @@ struct CallbackQuery {
 async fn callback(
     State(state): State<AppState>,
     mut auth_session: AuthSession,
+    headers: HeaderMap,
     Query(query): Query<CallbackQuery>,
 ) -> Response {
     if state.auth.flow().is_none() {
         return StatusCode::NOT_FOUND.into_response();
     }
 
+    let (jar, pending) = state.auth.login_cookie.finish(&headers, Timestamp::now());
+    let response = complete_login(&state.auth, &mut auth_session, pending, query).await;
+    (jar, response).into_response()
+}
+
+async fn complete_login(
+    auth: &AuthState,
+    auth_session: &mut AuthSession,
+    pending: Option<LoginPending>,
+    query: CallbackQuery,
+) -> Response {
     if query.error.is_some() {
-        return login_error(&mut auth_session, LoginFail::Auth).await;
+        return login_error(auth_session, LoginFail::Auth).await;
     }
 
-    let pending = match auth_session
-        .session
-        .get::<LoginPending>(LOGIN_PENDING_KEY)
-        .await
-    {
-        Ok(Some(pending)) => pending,
-        Ok(None) => {
-            tracing::warn!("oidc callback missing login state");
-            return login_error(&mut auth_session, LoginFail::Auth).await;
-        }
-        Err(error) => {
-            tracing::error!(%error, "failed to read oidc login state");
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
+    let Some(pending) = pending else {
+        tracing::warn!("oidc callback missing login state");
+        return login_error(auth_session, LoginFail::Auth).await;
     };
 
     let Some(state_param) = query.state.as_deref() else {
-        return login_error(&mut auth_session, LoginFail::Auth).await;
+        return login_error(auth_session, LoginFail::Auth).await;
     };
 
     if pending.state != state_param {
         tracing::warn!("oidc callback rejected: state mismatch");
-        return login_error(&mut auth_session, LoginFail::Auth).await;
+        return login_error(auth_session, LoginFail::Auth).await;
     }
 
     let Some(code) = query.code else {
-        return login_error(&mut auth_session, LoginFail::Auth).await;
+        return login_error(auth_session, LoginFail::Auth).await;
     };
 
     let user = match auth_session
@@ -366,28 +349,19 @@ async fn callback(
         .await
     {
         Ok(Some(user)) => user,
-        Ok(None) => return login_error(&mut auth_session, LoginFail::Auth).await,
+        Ok(None) => return login_error(auth_session, LoginFail::Auth).await,
         Err(error) => {
             tracing::error!(%error, "oidc authenticate failed");
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     };
 
-    if state.auth.access_from_user(&user).is_none() {
+    if auth.access_from_user(&user).is_none() {
         tracing::info!(
             sub = user.sub.as_str(),
             "oidc login refused: no matching role"
         );
-        return login_error(&mut auth_session, LoginFail::Forbidden).await;
-    }
-
-    if let Err(error) = auth_session
-        .session
-        .remove::<LoginPending>(LOGIN_PENDING_KEY)
-        .await
-    {
-        tracing::error!(%error, "failed to clear oidc login state");
-        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        return login_error(auth_session, LoginFail::Forbidden).await;
     }
 
     let ttl = (user.exp - Timestamp::now().as_second()).max(1);
@@ -431,13 +405,6 @@ async fn login_error(auth_session: &mut AuthSession, fail: LoginFail) -> Respons
     Redirect::to(location).into_response()
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-struct LoginPending {
-    state: String,
-    nonce: String,
-    pkce_verifier: String,
-}
-
 fn session_layer(sessions: ExpiringStore, secure: bool, key: Key) -> SessionLayer {
     SessionManagerLayer::new(sessions)
         .with_name(SESSION_COOKIE)
@@ -453,6 +420,7 @@ fn session_layer(sessions: ExpiringStore, secure: bool, key: Key) -> SessionLaye
 mod tests {
     use axum::http::StatusCode;
 
+    use super::login::LOGIN_COOKIE;
     use super::testing::{Browser, FakeOidc};
     use super::*;
     use crate::kafka::store::Change;
@@ -600,7 +568,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn login_redirects_to_identity_provider() {
+    async fn login_redirects_to_the_provider_without_storing_a_session() {
         let mut browser = Browser::new(AuthState::enabled_for_tests());
 
         let login = browser.get("/api/auth/login").await;
@@ -611,10 +579,11 @@ mod tests {
                 .location()
                 .starts_with("https://idp.example/authorize")
         );
-        assert!(login.set_cookie().starts_with(SESSION_COOKIE));
+        assert!(login.cookie(LOGIN_COOKIE).is_some());
+        assert_eq!(login.cookie(SESSION_COOKIE), None);
     }
 
-    async fn login_cookie(redirect_uri: &str) -> String {
+    async fn cookies(redirect_uri: &str) -> [String; 2] {
         let auth: config::Auth = yaml(&format!(
             "
             oidc:
@@ -628,17 +597,28 @@ mod tests {
         ));
         let mut browser = Browser::new(AuthState::enabled(Arc::new(FakeOidc::default()), &auth));
 
-        browser.get("/api/auth/login").await.set_cookie().to_owned()
+        let login = browser.get("/api/auth/login").await;
+        let callback = browser.return_from_provider(&login, "test-code").await;
+
+        [
+            login.cookie(LOGIN_COOKIE).expect("a login cookie"),
+            callback.cookie(SESSION_COOKIE).expect("a session cookie"),
+        ]
+        .map(str::to_owned)
     }
 
     #[tokio::test]
-    async fn the_session_cookie_follows_the_auth_config() {
-        let https = login_cookie("https://klens.example/api/auth/callback").await;
-        let http = login_cookie("http://localhost:8080/api/auth/callback").await;
+    async fn the_cookies_follow_the_auth_config() {
+        let [https_login, https_session] = cookies("https://klens.example/api/auth/callback").await;
+        let [http_login, http_session] = cookies("http://localhost:8080/api/auth/callback").await;
 
-        assert!(https.contains("; Secure"), "{https}");
-        assert!(!http.contains("; Secure"), "{http}");
-        assert!(https.contains("Max-Age=90"), "{https}");
+        for https in [&https_login, &https_session] {
+            assert!(https.contains("; Secure"), "{https}");
+        }
+        for http in [&http_login, &http_session] {
+            assert!(!http.contains("; Secure"), "{http}");
+        }
+        assert!(https_login.contains("Max-Age=90"), "{https_login}");
     }
 
     #[tokio::test]
@@ -665,7 +645,7 @@ mod tests {
         let callback = browser.log_in("test-code").await;
 
         assert_eq!(callback.location(), "/login?from=callback");
-        assert!(callback.set_cookie().starts_with(SESSION_COOKIE));
+        assert!(callback.cookie(SESSION_COOKIE).is_some());
         assert_eq!(browser.get("/api/clusters").await.status, StatusCode::OK);
         logs.assert_contains(r#"oidc login succeeded sub="user-1""#);
     }
@@ -687,6 +667,17 @@ mod tests {
 
         assert_eq!(logout.status, StatusCode::NO_CONTENT);
         assert_eq!(updates.next().await.data["code"], "SESSION_EXPIRED");
+    }
+
+    #[tokio::test]
+    async fn callback_rejects_a_login_signed_by_another_key() {
+        let mut browser = Browser::new(AuthState::enabled_for_tests());
+        let login = browser.get("/api/auth/login").await;
+
+        browser.restart(AuthState::enabled_for_tests());
+        let callback = browser.return_from_provider(&login, "test-code").await;
+
+        assert_eq!(callback.location(), "/login?error=auth");
     }
 
     #[tokio::test]
