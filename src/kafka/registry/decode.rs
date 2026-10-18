@@ -156,7 +156,7 @@ impl PayloadDecoder {
             Err(error) => return Err(DecodeError::failed(error)),
         };
 
-        match SchemaType::from(schema.schema_type) {
+        match SchemaType::try_from(schema.schema_type).map_err(DecodeError::failed)? {
             SchemaType::Json => Ok(Resolved::Json),
             schema_type => self.compiled(key, schema_type, &schema).await,
         }
@@ -446,6 +446,7 @@ mod tests {
 
     fn matches_orderid(value: &DecodedPayload) -> bool {
         CompiledFilter::contains("orderid")
+            .unwrap()
             .unwrap()
             .on_payload(None, Some(value))
     }

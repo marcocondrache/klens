@@ -7,7 +7,7 @@ use crate::testing::{Api, FakeCluster, Rig};
 async fn the_topology_lane_assembles_brokers_topics_and_groups() {
     let rig = Rig::local();
 
-    rig.poll(&rig.topology()).await;
+    rig.poll(&mut rig.topology()).await;
 
     let topology = rig.store.topology.load().expect("topology");
     assert_eq!(topology.cluster_id.as_deref(), Some("test-cluster"));
@@ -25,11 +25,11 @@ async fn the_topology_lane_assembles_brokers_topics_and_groups() {
 #[tokio::test]
 async fn a_topology_poll_that_changes_nothing_commits_and_publishes_nothing() {
     let rig = Rig::local();
-    let lane = rig.topology();
+    let mut lane = rig.topology();
     let mut bus = rig.store.bus.probe();
 
-    rig.poll(&lane).await;
-    rig.poll(&lane).await;
+    rig.poll(&mut lane).await;
+    rig.poll(&mut lane).await;
 
     assert_eq!(rig.cluster.calls(Api::Metadata), 2);
     assert_eq!(
@@ -44,12 +44,12 @@ async fn a_topology_poll_that_changes_nothing_commits_and_publishes_nothing() {
 #[tokio::test]
 async fn a_new_partition_is_published_as_a_changed_topic() {
     let rig = Rig::local();
-    let lane = rig.topology();
-    rig.poll(&lane).await;
+    let mut lane = rig.topology();
+    rig.poll(&mut lane).await;
     let mut bus = rig.store.bus.probe();
 
     rig.cluster.add_partition("orders.created", 2);
-    rig.poll(&lane).await;
+    rig.poll(&mut lane).await;
 
     assert_eq!(
         *bus.next(Change::topology),
@@ -64,8 +64,8 @@ async fn a_new_partition_is_published_as_a_changed_topic() {
 async fn the_topology_lane_keeps_search_current() {
     let rig = Rig::local();
 
-    rig.poll(&rig.topology()).await;
-    rig.poll(&rig.subjects()).await;
+    rig.poll(&mut rig.topology()).await;
+    rig.poll(&mut rig.subjects()).await;
 
     let hits = rig.store.search("order");
     let ids: Vec<&str> = hits.iter().map(|hit| hit.id.as_str()).collect();
@@ -79,13 +79,13 @@ async fn the_topology_lane_keeps_search_current() {
 #[tokio::test(start_paused = true)]
 async fn a_deleted_topic_loses_its_rate() {
     let rig = Rig::new(FakeCluster::local().with_topic("payments", 1, 4));
-    let lane = rig.topology();
-    rig.poll(&lane).await;
-    rig.poll(&rig.watermarks()).await;
+    let mut lane = rig.topology();
+    rig.poll(&mut lane).await;
+    rig.poll(&mut rig.watermarks()).await;
     assert_eq!(rig.store.rates.get("payments"), Some(0.0));
 
     rig.cluster.remove_topic("payments");
-    rig.poll(&lane).await;
+    rig.poll(&mut lane).await;
 
     assert_eq!(rig.store.rates.get("payments"), None);
     assert_eq!(rig.store.rates.get("orders.created"), Some(0.0));

@@ -1,6 +1,6 @@
 use std::hash::BuildHasher;
 use std::num::NonZeroUsize;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 use foldhash::fast::FixedState;
@@ -23,8 +23,8 @@ pub struct OffsetLane {
     fast: Duration,
     slow: Duration,
     concurrency: NonZeroUsize,
-    attempted_at: Mutex<HashMap<Arc<str>, Instant>>,
-    published: Mutex<HashMap<Arc<str>, u64>>,
+    attempted_at: HashMap<Arc<str>, Instant>,
+    published: HashMap<Arc<str>, u64>,
     fingerprint: FixedState,
 }
 
@@ -50,8 +50,8 @@ impl OffsetLane {
             fast: defaults.fast_offset,
             slow: defaults.slow_offset,
             concurrency: defaults.offset_fetch_concurrency,
-            attempted_at: Mutex::new(HashMap::new()),
-            published: Mutex::new(HashMap::new()),
+            attempted_at: HashMap::new(),
+            published: HashMap::new(),
             fingerprint: FixedState::default(),
         }
     }
@@ -68,7 +68,7 @@ impl OffsetLane {
         self
     }
 
-    pub async fn run(self, store: Arc<ClusterStore>) {
+    pub async fn run(mut self, store: Arc<ClusterStore>) {
         let cluster = store.name().to_owned();
         let mut upstream = store.topology.follow();
         loop {
@@ -91,7 +91,7 @@ impl OffsetLane {
         }
     }
 
-    pub async fn sweep(&self, store: &ClusterStore, topology: &Topology) -> Wave {
+    pub async fn sweep(&mut self, store: &ClusterStore, topology: &Topology) -> Wave {
         self.retain(topology);
 
         let previous = store.offsets.load();
@@ -157,7 +157,6 @@ impl OffsetLane {
         refresh: bool,
         now: Instant,
     ) -> Vec<Arc<str>> {
-        let attempted = self.attempted_at.lock().expect("offset lane clock");
         topology
             .groups
             .keys()
@@ -169,7 +168,7 @@ impl OffsetLane {
                 } else {
                     self.fast
                 };
-                attempted
+                self.attempted_at
                     .get(*id)
                     .is_none_or(|at| now.saturating_duration_since(*at) >= threshold)
             })
@@ -177,27 +176,22 @@ impl OffsetLane {
             .collect()
     }
 
-    fn mark_attempted(&self, ids: &[Arc<str>]) {
+    fn mark_attempted(&mut self, ids: &[Arc<str>]) {
         let now = Instant::now();
-        let mut attempted = self.attempted_at.lock().expect("offset lane clock");
         for id in ids {
-            attempted.insert(Arc::clone(id), now);
+            self.attempted_at.insert(Arc::clone(id), now);
         }
     }
 
-    fn retain(&self, topology: &Topology) {
+    fn retain(&mut self, topology: &Topology) {
         self.attempted_at
-            .lock()
-            .expect("offset lane clock")
             .retain(|id, _| topology.groups.contains_key(id));
         self.published
-            .lock()
-            .expect("offset lane published")
             .retain(|id, _| topology.groups.contains_key(id));
     }
 
     async fn fetch(
-        &self,
+        &mut self,
         topology: &Topology,
         previous: Option<&OffsetTable>,
         due: &[Arc<str>],
@@ -228,14 +222,13 @@ impl OffsetLane {
     }
 
     fn lag_updates(
-        &self,
+        &mut self,
         store: &ClusterStore,
         topology: &Topology,
         offsets: &OffsetTable,
         refreshed: &[Arc<str>],
     ) -> Vec<GroupLagUpdate> {
         let watermarks = store.watermarks.load();
-        let mut published = self.published.lock().expect("offset lane published");
 
         refreshed
             .iter()
@@ -253,7 +246,7 @@ impl OffsetLane {
                     offsets: lag.offsets,
                 };
                 let fingerprint = self.fingerprint.hash_one(&update);
-                if published.insert(Arc::clone(id), fingerprint) == Some(fingerprint) {
+                if self.published.insert(Arc::clone(id), fingerprint) == Some(fingerprint) {
                     return None;
                 }
                 Some(update)

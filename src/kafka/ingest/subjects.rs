@@ -39,7 +39,7 @@ impl LaneSource for SubjectLane {
     }
 
     async fn fetch(
-        &self,
+        &mut self,
         _store: &ClusterStore,
         (): &(),
         previous: Option<&Arc<SubjectTable>>,
@@ -58,7 +58,7 @@ impl LaneSource for SubjectLane {
     }
 
     fn publish(
-        &self,
+        &mut self,
         store: &ClusterStore,
         _previous: Option<&Arc<SubjectTable>>,
         _next: &Arc<SubjectTable>,

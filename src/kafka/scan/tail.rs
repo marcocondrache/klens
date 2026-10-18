@@ -368,7 +368,7 @@ mod tests {
     async fn a_filter_sends_only_matching_records() {
         let session = FakeCluster::local();
         let mut filtered = query();
-        filtered.filter = CompiledFilter::contains("hit");
+        filtered.filter = CompiledFilter::contains("hit").unwrap();
         let mut tail = open(&session, filtered).await;
 
         session.produce(record(0, 8, 8, "miss"));
@@ -506,7 +506,7 @@ mod tests {
     async fn a_filtered_tail_reads_a_longer_backlog_before_skipping() {
         let session = FakeCluster::local();
         let mut filtered = query();
-        filtered.filter = CompiledFilter::contains("ord");
+        filtered.filter = CompiledFilter::contains("ord").unwrap();
         let mut tail = open(&session, filtered).await;
 
         produce_run(&session, 8..41);

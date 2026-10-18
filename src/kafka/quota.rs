@@ -3,8 +3,6 @@ use std::fmt::{self, Display, Formatter};
 use itertools::Itertools as _;
 use tracing::warn;
 
-use crate::kafka::error::{KafkaError, is_cluster_authorization_text};
-
 #[derive(
     Debug,
     Clone,
@@ -117,24 +115,13 @@ impl QuotaListing {
         }
     }
 
-    pub fn from_describe(
-        cluster: &str,
-        error: Option<&str>,
-        entries: impl IntoIterator<Item = DescribedQuota>,
-    ) -> Result<Self, KafkaError> {
-        if let Some(message) = error {
-            if is_cluster_authorization_text(message) {
-                return Ok(Self::Denied);
-            }
-            return Err(KafkaError::Admin(message.to_owned()));
-        }
-
-        Ok(Self::Described(
+    pub fn from_describe(cluster: &str, entries: impl IntoIterator<Item = DescribedQuota>) -> Self {
+        Self::Described(
             entries
                 .into_iter()
                 .filter_map(|entry| ClientQuota::from_described(cluster, entry))
                 .collect(),
-        ))
+        )
     }
 }
 

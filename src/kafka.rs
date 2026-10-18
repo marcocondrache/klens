@@ -26,7 +26,7 @@ pub(crate) mod model;
 pub(crate) mod testing;
 
 pub use cluster::{Cluster, Clusters};
-pub use error::{KafkaError, QueryError};
+pub use error::{KafkaError, QueryError, Refusal};
 pub use limits::TailLimits;
 pub use model::{ConfigEntry, RecordPage, RecordQuery};
 pub use scan::cursor::RecordCursor;

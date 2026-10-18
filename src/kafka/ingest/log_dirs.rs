@@ -41,7 +41,7 @@ impl LaneSource for LogDirLane {
     }
 
     async fn fetch(
-        &self,
+        &mut self,
         _store: &ClusterStore,
         topology: &Topology,
         _previous: Option<&Arc<LogDirTable>>,
@@ -62,7 +62,7 @@ impl LaneSource for LogDirLane {
     }
 
     fn publish(
-        &self,
+        &mut self,
         store: &ClusterStore,
         _previous: Option<&Arc<LogDirTable>>,
         _next: &Arc<LogDirTable>,

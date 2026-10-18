@@ -28,7 +28,7 @@ async fn topic_create_creates_what_the_http_route_creates() {
     assert_eq!(created, json!({ "topic": "invoices", "partitions": 3 }));
     for app in [&by_tool, &by_route] {
         let rig = app.rig();
-        rig.poll(&rig.configs()).await;
+        rig.poll(&mut rig.configs()).await;
     }
     for path in [
         "/clusters/local/topics/invoices",

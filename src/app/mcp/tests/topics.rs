@@ -63,7 +63,7 @@ async fn detailed_topic_rows_match_the_http_rows_once_measured() {
 async fn topic_counts_klens_has_not_read_are_null_not_zero() {
     let app = TestApp::of([FakeCluster::local()]).build();
     let rig = app.rig();
-    rig.poll(&rig.topology()).await;
+    rig.poll(&mut rig.topology()).await;
 
     let listed = structured(
         &call(
@@ -121,7 +121,7 @@ async fn a_topic_missing_one_partitions_watermarks_has_no_record_count() {
         ],
     ));
     let rig = app.rig();
-    rig.poll(&rig.topology()).await;
+    rig.poll(&mut rig.topology()).await;
 
     let listed = structured(&call(&app, "klens_topics_list", json!({})).await);
     let described = structured(
@@ -185,7 +185,7 @@ async fn the_empty_filter_counts_the_topics_it_cannot_judge() {
     let app = TestApp::over(cluster.clone()).await;
     cluster.add_topic("fresh", 1, 0);
     let rig = app.rig();
-    rig.poll(&rig.topology()).await;
+    rig.poll(&mut rig.topology()).await;
     let list =
         async |arguments: Value| structured(&call(&app, "klens_topics_list", arguments).await);
 
@@ -446,8 +446,8 @@ async fn topic_describe_says_when_klens_has_not_read_the_configs() {
     cluster.add_topic("invoices", 1, 0);
     cluster.fail(Api::TopicConfigs, "describe configs denied");
     let rig = app.rig();
-    rig.poll(&rig.topology()).await;
-    rig.poll(&rig.configs()).await;
+    rig.poll(&mut rig.topology()).await;
+    rig.poll(&mut rig.configs()).await;
 
     let described =
         structured(&call(&app, "klens_topic_describe", json!({ "topic": "invoices" })).await);

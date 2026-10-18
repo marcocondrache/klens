@@ -439,7 +439,7 @@ mod tests {
     async fn payloads_decode_off_the_runtime_thread_under_the_callers_span() {
         let logs = LogCapture::at(Level::INFO);
 
-        for filter in [CompiledFilter::contains("ord"), None] {
+        for filter in [CompiledFilter::contains("ord").unwrap(), None] {
             let probe = Probe::default();
             let pipeline = RecordPipeline::new(Some(Arc::new(probe.clone())), filter, None, None);
             let raw = RawRecord {

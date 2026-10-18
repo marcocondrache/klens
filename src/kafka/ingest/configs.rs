@@ -41,7 +41,7 @@ impl LaneSource for ConfigLane {
     }
 
     async fn fetch(
-        &self,
+        &mut self,
         _store: &ClusterStore,
         topology: &Topology,
         previous: Option<&Arc<ConfigTable>>,
@@ -74,7 +74,7 @@ impl LaneSource for ConfigLane {
     }
 
     fn publish(
-        &self,
+        &mut self,
         store: &ClusterStore,
         _previous: Option<&Arc<ConfigTable>>,
         _next: &Arc<ConfigTable>,

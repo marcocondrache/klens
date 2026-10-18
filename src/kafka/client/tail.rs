@@ -8,10 +8,8 @@ use krafka::consumer::{AutoOffsetReset, Consumer, TopicPartition};
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::{RawRecord, TailConsumer, TailPosition};
 
-use super::scan::{ReaderConfig, raw_record, reader};
+use super::scan::{ReaderConfig, raw_record, reader, retire};
 use super::transport::Connector;
-
-const RETIRE_GRACE: Duration = Duration::from_secs(1);
 
 /// Each tail reads over a connection pool of its own, so a fetch the broker
 /// holds open never queues the cluster's other requests behind it.
@@ -48,12 +46,6 @@ impl TailLease {
             consumer,
         })
     }
-}
-
-fn retire(consumer: Arc<Consumer>) {
-    tokio::spawn(async move {
-        let _ = tokio::time::timeout(RETIRE_GRACE, consumer.close()).await;
-    });
 }
 
 #[async_trait]

@@ -90,7 +90,7 @@ fn rates_round_to_thousandths() {
 #[tokio::test(start_paused = true)]
 async fn a_sample_older_than_the_max_gap_is_not_divided_by() {
     let rig = Rig::local();
-    let lane = rig.watermarks();
+    let mut lane = rig.watermarks();
     let step = |high: i64| Arc::new(watermarks(&[("orders", 0, 0, high)]));
     let first = step(10);
     lane.publish(&rig.store, None, &first, ());
@@ -108,7 +108,7 @@ async fn a_sample_older_than_the_max_gap_is_not_divided_by() {
 #[tokio::test(start_paused = true)]
 async fn a_tick_carries_only_the_rates_that_changed() {
     let rig = Rig::local();
-    let lane = rig.watermarks();
+    let mut lane = rig.watermarks();
     let mut bus = rig.store.bus.probe();
     let step = |marks: &[(&str, i32, i64, i64)]| Arc::new(watermarks(marks));
 
@@ -145,14 +145,14 @@ async fn a_tick_carries_only_the_rates_that_changed() {
 #[tokio::test(start_paused = true)]
 async fn a_watermark_tick_publishes_the_rate_it_stores() {
     let rig = Rig::new(FakeCluster::local().with_growing_watermarks(20));
-    let lane = rig.watermarks();
-    rig.poll(&rig.topology()).await;
-    rig.poll(&lane).await;
+    let mut lane = rig.watermarks();
+    rig.poll(&mut rig.topology()).await;
+    rig.poll(&mut lane).await;
     assert_eq!(rig.store.rates.get("orders.created"), Some(0.0));
     let mut bus = rig.store.bus.probe();
 
     advance(Duration::from_secs(2)).await;
-    rig.poll(&lane).await;
+    rig.poll(&mut lane).await;
 
     let tick = bus.next(Change::watermarks);
     assert_eq!(tick.rate("orders.created"), Some(10.0));
@@ -162,17 +162,17 @@ async fn a_watermark_tick_publishes_the_rate_it_stores() {
 #[tokio::test(start_paused = true)]
 async fn a_quiet_topic_falls_back_to_a_zero_rate_on_the_heartbeat() {
     let rig = Rig::local();
-    let lane = rig.watermarks();
-    rig.poll(&rig.topology()).await;
-    rig.poll(&lane).await;
+    let mut lane = rig.watermarks();
+    rig.poll(&mut rig.topology()).await;
+    rig.poll(&mut lane).await;
 
     advance(Duration::from_secs(1)).await;
     rig.cluster
         .set_watermarks("orders.created", 0, Watermarks { low: 0, high: 18 });
-    rig.poll(&lane).await;
+    rig.poll(&mut lane).await;
     assert_eq!(rig.store.rates.get("orders.created"), Some(10.0));
 
-    rig.poll(&lane).await;
+    rig.poll(&mut lane).await;
     assert_eq!(
         rig.store.watermarks.version(),
         2,
@@ -180,7 +180,7 @@ async fn a_quiet_topic_falls_back_to_a_zero_rate_on_the_heartbeat() {
     );
 
     advance(IngestTuning::default().idle_heartbeat).await;
-    rig.poll(&lane).await;
+    rig.poll(&mut lane).await;
     assert_eq!(rig.store.watermarks.version(), 3);
     assert_eq!(rig.store.rates.get("orders.created"), Some(0.0));
 }
@@ -190,15 +190,15 @@ async fn between_low_reads_the_watermark_lane_lists_only_high_watermarks() {
     let rig = Rig::local();
     rig.cluster
         .set_watermarks("orders.created", 1, Watermarks { low: 8, high: 8 });
-    let lane = rig.watermarks();
-    rig.poll(&rig.topology()).await;
-    rig.poll(&lane).await;
+    let mut lane = rig.watermarks();
+    rig.poll(&mut rig.topology()).await;
+    rig.poll(&mut lane).await;
     assert_eq!(rig.cluster.calls(Api::LowWatermarks), 1);
     assert_eq!(rig.cluster.calls(Api::HighWatermarks), 1);
 
     rig.cluster
         .set_watermarks("orders.created", 0, Watermarks { low: 5, high: 12 });
-    rig.poll(&lane).await;
+    rig.poll(&mut lane).await;
 
     assert_eq!(rig.cluster.calls(Api::HighWatermarks), 2);
     assert_eq!(
@@ -220,20 +220,20 @@ async fn between_low_reads_the_watermark_lane_lists_only_high_watermarks() {
 #[tokio::test(start_paused = true)]
 async fn the_watermark_lane_rereads_low_watermarks_once_their_interval_passes() {
     let rig = Rig::local();
-    let lane = rig.watermarks();
-    rig.poll(&rig.topology()).await;
-    rig.poll(&lane).await;
+    let mut lane = rig.watermarks();
+    rig.poll(&mut rig.topology()).await;
+    rig.poll(&mut lane).await;
     let low_watermark = IngestTuning::default().low_watermark;
 
     advance(low_watermark - Duration::from_millis(1)).await;
-    rig.poll(&lane).await;
+    rig.poll(&mut lane).await;
     assert_eq!(rig.cluster.calls(Api::HighWatermarks), 2);
     assert_eq!(rig.cluster.calls(Api::LowWatermarks), 1);
 
     rig.cluster
         .set_watermarks("orders.created", 0, Watermarks { low: 5, high: 12 });
     advance(Duration::from_millis(1)).await;
-    rig.poll(&lane).await;
+    rig.poll(&mut lane).await;
 
     assert_eq!(
         rig.store
@@ -249,9 +249,9 @@ async fn the_watermark_lane_rereads_low_watermarks_once_their_interval_passes() 
 #[tokio::test(start_paused = true)]
 async fn a_refresh_rereads_cached_low_watermarks() {
     let rig = Rig::local();
-    let lane = rig.watermarks();
-    rig.poll(&rig.topology()).await;
-    rig.poll(&lane).await;
+    let mut lane = rig.watermarks();
+    rig.poll(&mut rig.topology()).await;
+    rig.poll(&mut lane).await;
     rig.cluster
         .set_watermarks("orders.created", 0, Watermarks { low: 5, high: 12 });
     let store = Arc::clone(&rig.store);
@@ -265,7 +265,7 @@ async fn a_refresh_rereads_cached_low_watermarks() {
     });
     quiesce().await;
 
-    rig.poll(&lane).await;
+    rig.poll(&mut lane).await;
 
     assert_eq!(rig.cluster.calls(Api::LowWatermarks), 2);
     tokio::time::timeout(Duration::from_secs(1), waiter)
@@ -277,18 +277,18 @@ async fn a_refresh_rereads_cached_low_watermarks() {
 #[tokio::test(start_paused = true)]
 async fn a_new_partition_reads_its_low_watermark_on_the_next_poll() {
     let rig = Rig::local();
-    let topology = rig.topology();
-    let lane = rig.watermarks();
-    rig.poll(&topology).await;
-    rig.poll(&lane).await;
+    let mut topology = rig.topology();
+    let mut lane = rig.watermarks();
+    rig.poll(&mut topology).await;
+    rig.poll(&mut lane).await;
 
     rig.cluster
         .set_watermarks("orders.created", 0, Watermarks { low: 5, high: 12 });
     rig.cluster.add_partition("orders.created", 7);
     rig.cluster
         .set_watermarks("orders.created", 7, Watermarks { low: 3, high: 9 });
-    rig.poll(&topology).await;
-    rig.poll(&lane).await;
+    rig.poll(&mut topology).await;
+    rig.poll(&mut lane).await;
 
     let marks = rig.store.watermarks.load().expect("watermarks");
     assert_eq!(
@@ -309,13 +309,13 @@ async fn a_high_watermark_below_the_cached_low_rereads_the_low() {
     let rig = Rig::local();
     rig.cluster
         .set_watermarks("orders.created", 0, Watermarks { low: 6, high: 8 });
-    let lane = rig.watermarks();
-    rig.poll(&rig.topology()).await;
-    rig.poll(&lane).await;
+    let mut lane = rig.watermarks();
+    rig.poll(&mut rig.topology()).await;
+    rig.poll(&mut lane).await;
 
     rig.cluster
         .set_watermarks("orders.created", 0, Watermarks { low: 0, high: 2 });
-    rig.poll(&lane).await;
+    rig.poll(&mut lane).await;
 
     assert_eq!(
         rig.store
@@ -330,13 +330,13 @@ async fn a_high_watermark_below_the_cached_low_rereads_the_low() {
 #[tokio::test(start_paused = true)]
 async fn a_new_topic_waits_for_the_next_watermark_poll() {
     let mut rig = Rig::local();
-    let topology = rig.topology();
-    rig.poll(&topology).await;
+    let mut topology = rig.topology();
+    rig.poll(&mut topology).await;
     rig.spawn(rig.watermarks());
     rig.store.watermarks.committed().await;
 
     rig.cluster.add_topic("payments", 1, 0);
-    rig.poll(&topology).await;
+    rig.poll(&mut topology).await;
     quiesce().await;
 
     assert_eq!(rig.cluster.calls(Api::LowWatermarks), 1);

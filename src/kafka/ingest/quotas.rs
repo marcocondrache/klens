@@ -40,7 +40,7 @@ impl LaneSource for QuotaLane {
     }
 
     async fn fetch(
-        &self,
+        &mut self,
         _store: &ClusterStore,
         (): &(),
         _previous: Option<&Arc<QuotaListing>>,
@@ -53,7 +53,7 @@ impl LaneSource for QuotaLane {
     }
 
     fn publish(
-        &self,
+        &mut self,
         store: &ClusterStore,
         _previous: Option<&Arc<QuotaListing>>,
         _next: &Arc<QuotaListing>,

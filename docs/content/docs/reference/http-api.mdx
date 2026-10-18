@@ -266,6 +266,7 @@ A `records` frame holds at most `tuning.tail.batch_limit` records, and frames ar
 | `LIMIT_TOO_SMALL` | 400 | `limit` is below 1. |
 | `INVALID_CURSOR` | 400 | The cursor is malformed or does not match `order`. |
 | `INVERTED_TIMESTAMP_RANGE` | 400 | `from` is later than `to`. |
+| `FILTER_TOO_LONG` | 400 | `contains` is too long to search for. |
 | `ACTIVE_GROUP` | 409 | The group has members. |
 | `CONSUMED_TOPIC` | 409 | The group still consumes the topic. |
 | `REFUSED` | 422 | Kafka refused the change. The message carries the reason. |

@@ -8,17 +8,16 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use tokio::time::{Instant, timeout_at};
 
-use crate::kafka::error::KafkaError;
+use crate::kafka::error::{KafkaError, QueryError};
 use crate::kafka::limits::RecordLimits;
-use crate::kafka::metadata::Watermarks;
 use crate::kafka::session::ClusterSession;
 
 use super::RecordPage;
 use super::batch::{RecordBatch, SortKey};
-use super::cursor::CursorDirection;
+use super::cursor::{CursorDirection, RecordCursor};
 use super::obfuscate::TopicObfuscator;
 use super::pipeline::{Kept, RecordPipeline};
-use super::plan::{PartitionWindow, advance_cursor, plan_windows, rewind_cursor, walk_start};
+use super::plan::{LogSpan, PartitionWindow};
 use super::query::{RecordOrder, RecordQuery};
 
 #[cfg(test)]
@@ -329,112 +328,129 @@ fn abandoned(window: &PartitionWindow, walk: RecordOrder) -> PartitionWindow {
     }
 }
 
-pub async fn fetch_page<S: ClusterSession + ?Sized>(
-    session: &S,
-    query: &RecordQuery,
-    partitions: &[i32],
-    watermarks: &HashMap<i32, Watermarks>,
+/// A record query with its page size settled against the configured limits.
+#[derive(Debug)]
+pub struct PageRequest {
+    query: RecordQuery,
     limit: usize,
-    limits: RecordLimits,
-) -> Result<RecordPage, KafkaError> {
-    let walk = query.walk();
-    let order = query.order;
-    let direction = query.direction();
-    let searching = query.searching();
+    take: i64,
+}
 
-    let plan = |cursor: Option<&_>| {
-        plan_windows(
-            partitions, watermarks, walk, limit, searching, cursor, limits,
-        )
-    };
+impl PageRequest {
+    pub fn new(query: RecordQuery, limits: RecordLimits) -> Result<Self, QueryError> {
+        let limit = limits.clamp_limit(query.limit)?;
+        let take = limits.window_take(limit, query.searching());
 
-    let mut cursor = query.cursor.clone();
-    let mut windows = plan(cursor.as_ref());
-    if windows.is_empty() || limit == 0 {
-        return Ok(RecordPage {
-            obfuscated: topic_obfuscator(session, &query.topic).is_some(),
-            ..RecordPage::empty()
-        });
+        Ok(Self { query, limit, take })
     }
 
-    let deadline = Instant::now() + session.consume_timeout();
-    let mut scan = ScanSession::open(session, query, walk, deadline, &windows).await?;
+    pub fn query(&self) -> &RecordQuery {
+        &self.query
+    }
 
-    let max_passes = if searching { MAX_FILTER_PASSES } else { 1 };
-    let fresh = walk_start(walk, partitions, watermarks);
-    let mut kept: Vec<Kept> = Vec::new();
-    let mut complete = true;
-    let mut scanned = false;
+    pub fn set_cursor(&mut self, cursor: Option<RecordCursor>) {
+        self.query.cursor = cursor;
+    }
 
-    for pass in 0..max_passes {
-        let from = cursor.as_ref().map_or(&fresh, |cursor| &cursor.remaining);
-        if pass > 0 {
-            windows = plan(cursor.as_ref());
-            if windows.is_empty() {
-                cursor = None;
+    pub async fn fetch<S: ClusterSession + ?Sized>(
+        &self,
+        session: &S,
+        span: &LogSpan,
+    ) -> Result<RecordPage, KafkaError> {
+        let query = &self.query;
+        let walk = query.walk();
+        let order = query.order;
+        let direction = query.direction();
+
+        let mut cursor = query.cursor.clone();
+        let mut windows = span.windows(walk, self.take, cursor.as_ref());
+        if windows.is_empty() {
+            return Ok(RecordPage {
+                obfuscated: topic_obfuscator(session, &query.topic).is_some(),
+                ..RecordPage::empty()
+            });
+        }
+
+        let deadline = Instant::now() + session.consume_timeout();
+        let mut scan = ScanSession::open(session, query, walk, deadline, &windows).await?;
+
+        let max_passes = if query.searching() {
+            MAX_FILTER_PASSES
+        } else {
+            1
+        };
+        let fresh = RecordCursor {
+            order,
+            remaining: span.start(walk),
+        };
+        let mut kept: Vec<Kept> = Vec::new();
+        let mut complete = true;
+        let mut scanned = false;
+
+        for pass in 0..max_passes {
+            let from = cursor.as_ref().unwrap_or(&fresh);
+            if pass != 0 {
+                windows = span.windows(walk, self.take, cursor.as_ref());
+                if windows.is_empty() {
+                    cursor = None;
+                    break;
+                }
+            }
+
+            let remaining = self.limit - kept.len();
+            let mut batch = RecordBatch::new(remaining, order, direction);
+            let outcome = scan.run(&windows, &mut batch, deadline).await?;
+            complete &= outcome.complete;
+            scanned |= outcome.scanned;
+
+            let found = batch.into_sorted();
+            let filled = found.len() >= remaining;
+            let next = span.advance(
+                from,
+                &outcome.covered,
+                &edges(found.iter().map(Kept::raw)),
+                remaining,
+            );
+            if kept.is_empty() {
+                kept = found;
+            } else {
+                kept.extend(found);
+            }
+
+            cursor = next;
+            if filled || cursor.is_none() || Instant::now() >= deadline {
                 break;
             }
         }
 
-        let remaining = limit - kept.len();
-        let mut batch = RecordBatch::new(remaining, order, direction);
-        let outcome = scan.run(&windows, &mut batch, deadline).await?;
-        complete &= outcome.complete;
-        scanned |= outcome.scanned;
-
-        let found = batch.into_sorted();
-        let filled = found.len() >= remaining;
-        let next = advance_cursor(
-            from,
-            &outcome.covered,
-            watermarks,
-            &edges(found.iter().map(Kept::raw)),
-            remaining,
-            order,
-        );
-        if kept.is_empty() {
-            kept = found;
-        } else {
-            kept.extend(found);
+        if !scanned && kept.is_empty() {
+            scan.close().await;
+            return Err(KafkaError::Timeout);
         }
 
-        let stalled = next == cursor;
-        cursor = next;
-        if filled || cursor.is_none() || stalled || Instant::now() >= deadline {
-            break;
-        }
-    }
-
-    if !scanned && kept.is_empty() {
+        kept.sort_unstable_by(|left, right| {
+            left.raw()
+                .sort_key()
+                .cmp_for_order(&right.raw().sort_key(), order)
+        });
+        let records = scan.pipeline.render(kept, &query.topic).await;
+        let obfuscated = scan.obfuscated();
         scan.close().await;
-        return Err(KafkaError::Timeout);
+
+        let near = query.cursor.as_ref().and_then(|opened| span.rewind(opened));
+        let (next_cursor, prev_cursor) = match direction {
+            CursorDirection::Forward => (cursor, near),
+            CursorDirection::Backward => (near, cursor),
+        };
+
+        Ok(RecordPage {
+            records,
+            complete,
+            obfuscated,
+            next_cursor: next_cursor.map(|cursor| cursor.to_string()),
+            prev_cursor: prev_cursor.map(|cursor| cursor.to_string()),
+        })
     }
-
-    kept.sort_unstable_by(|left, right| {
-        left.raw()
-            .sort_key()
-            .cmp_for_order(&right.raw().sort_key(), order)
-    });
-    let records = scan.pipeline.render(kept, &query.topic).await;
-    let obfuscated = scan.obfuscated();
-    scan.close().await;
-
-    let near = query
-        .cursor
-        .as_ref()
-        .and_then(|opened| rewind_cursor(opened, partitions, watermarks));
-    let (next_cursor, prev_cursor) = match direction {
-        CursorDirection::Forward => (cursor, near),
-        CursorDirection::Backward => (near, cursor),
-    };
-
-    Ok(RecordPage {
-        records,
-        complete,
-        obfuscated,
-        next_cursor: next_cursor.map(|cursor| cursor.to_string()),
-        prev_cursor: prev_cursor.map(|cursor| cursor.to_string()),
-    })
 }
 
 fn edges<'a>(records: impl IntoIterator<Item = &'a RawRecord>) -> Vec<(i32, i64)> {
@@ -484,7 +500,8 @@ mod tests {
     use std::num::NonZeroUsize;
 
     use super::*;
-    use crate::kafka::scan::cursor::{RecordCursor, Remaining};
+    use crate::kafka::metadata::Watermarks;
+    use crate::kafka::scan::cursor::Remaining;
     use crate::kafka::scan::filter::CompiledFilter;
     use crate::kafka::scan::query::TimestampRange;
     use crate::kafka::session::watermarks;
@@ -517,7 +534,7 @@ mod tests {
         RecordQuery {
             topic: "orders.created".into(),
             partitions: vec![0],
-            filter: CompiledFilter::contains("hit"),
+            filter: CompiledFilter::contains("hit").unwrap(),
             timestamps: TimestampRange::UNBOUNDED,
             limit: 2,
             order: RecordOrder::Oldest,
@@ -528,6 +545,18 @@ mod tests {
 
     fn marks(low: i64, high: i64) -> HashMap<i32, Watermarks> {
         HashMap::from_iter([(0, Watermarks { low, high })])
+    }
+
+    async fn fetch_page(
+        session: &FakeCluster,
+        query: &RecordQuery,
+        partitions: &[i32],
+        watermarks: &HashMap<i32, Watermarks>,
+    ) -> Result<RecordPage, KafkaError> {
+        let span = LogSpan::new(partitions.to_vec(), watermarks.clone());
+        PageRequest::new(query.clone(), LIMITS)?
+            .fetch(session, &span)
+            .await
     }
 
     fn offsets(page: &RecordPage) -> Vec<i64> {
@@ -622,7 +651,7 @@ mod tests {
         query.limit = 3;
         let started = Instant::now();
 
-        let page = fetch_page(&session, &query, &[0], &marks(0, 24), 3, LIMITS)
+        let page = fetch_page(&session, &query, &[0], &marks(0, 24))
             .await
             .unwrap();
 
@@ -648,7 +677,7 @@ mod tests {
     async fn empty_scan_results_advance_until_exhaustion() {
         let session = delayed(&[], Duration::from_secs(1));
 
-        let page = fetch_page(&session, &query(), &[0], &marks(0, 8), 2, LIMITS)
+        let page = fetch_page(&session, &query(), &[0], &marks(0, 8))
             .await
             .unwrap();
 
@@ -668,7 +697,7 @@ mod tests {
         query.filter = None;
         query.schema_id = Some(7);
 
-        let page = fetch_page(&session, &query, &[0], &marks(0, 8), 2, LIMITS)
+        let page = fetch_page(&session, &query, &[0], &marks(0, 8))
             .await
             .unwrap();
 
@@ -687,7 +716,7 @@ mod tests {
         });
         let started = Instant::now();
 
-        let page = fetch_page(&session, &query, &[0], &marks(0, 8), 2, LIMITS)
+        let page = fetch_page(&session, &query, &[0], &marks(0, 8))
             .await
             .unwrap();
 
@@ -702,7 +731,7 @@ mod tests {
         let session = delayed(&[0, 4], Duration::from_secs(6));
         let started = Instant::now();
 
-        let page = fetch_page(&session, &query(), &[0], &marks(0, 12), 2, LIMITS)
+        let page = fetch_page(&session, &query(), &[0], &marks(0, 12))
             .await
             .unwrap();
 
@@ -725,7 +754,7 @@ mod tests {
         let mut query = query();
         query.filter = None;
 
-        let error = fetch_page(&session, &query, &[0], &marks(0, 12), 2, LIMITS)
+        let error = fetch_page(&session, &query, &[0], &marks(0, 12))
             .await
             .unwrap_err();
 
@@ -739,7 +768,7 @@ mod tests {
         let session = delayed(&[256], Duration::from_millis(1));
         let mut query = query();
 
-        let page = fetch_page(&session, &query, &[0], &marks(0, 260), 2, LIMITS)
+        let page = fetch_page(&session, &query, &[0], &marks(0, 260))
             .await
             .unwrap();
 
@@ -753,7 +782,7 @@ mod tests {
         );
 
         query.cursor = Some(cursor);
-        let next = fetch_page(&session, &query, &[0], &marks(0, 260), 2, LIMITS)
+        let next = fetch_page(&session, &query, &[0], &marks(0, 260))
             .await
             .unwrap();
 
@@ -771,7 +800,7 @@ mod tests {
             remaining: Remaining::From(BTreeMap::from([(0, 2)])),
         });
 
-        let page = fetch_page(&session, &query, &[0], &marks(0, 8), 2, LIMITS)
+        let page = fetch_page(&session, &query, &[0], &marks(0, 8))
             .await
             .unwrap();
 
@@ -790,7 +819,7 @@ mod tests {
         let mut query = query();
         query.filter = None;
 
-        let page = fetch_page(&session, &query, &[0], &marks(0, 8), 2, LIMITS)
+        let page = fetch_page(&session, &query, &[0], &marks(0, 8))
             .await
             .unwrap();
 
@@ -809,7 +838,7 @@ mod tests {
             remaining: Remaining::From(BTreeMap::from([(0, 2)])),
         });
 
-        let page = fetch_page(&session, &query, &[0], &marks(0, 6), 2, LIMITS)
+        let page = fetch_page(&session, &query, &[0], &marks(0, 6))
             .await
             .unwrap();
 
@@ -857,7 +886,7 @@ mod tests {
         .remove(&query.topic)
         .unwrap();
 
-        let page = fetch_page(session, &query, &[0, 1], &watermarks, 2, LIMITS)
+        let page = fetch_page(session, &query, &[0, 1], &watermarks)
             .await
             .unwrap();
         let records = page
@@ -998,7 +1027,7 @@ mod tests {
         let mut query = query();
         query.limit = 2;
 
-        let page = fetch_page(&session, &query, &[0], &marks(0, 8), 2, LIMITS)
+        let page = fetch_page(&session, &query, &[0], &marks(0, 8))
             .await
             .unwrap();
 
@@ -1021,7 +1050,7 @@ mod tests {
         let mut query = query();
         query.filter = None;
 
-        let page = fetch_page(&session, &query, &[0], &marks(0, 1), 2, LIMITS)
+        let page = fetch_page(&session, &query, &[0], &marks(0, 1))
             .await
             .unwrap();
 
@@ -1059,14 +1088,14 @@ mod tests {
         query.filter = filter;
         query.limit = 4;
 
-        fetch_page(session, &query, &[0], &marks(0, 4), 4, LIMITS)
+        fetch_page(session, &query, &[0], &marks(0, 4))
             .await
             .unwrap()
     }
 
     #[tokio::test(start_paused = true)]
     async fn a_filter_matches_the_token_the_page_shows() {
-        let page = card_page(&cards(), CompiledFilter::contains("kx:")).await;
+        let page = card_page(&cards(), CompiledFilter::contains("kx:").unwrap()).await;
 
         assert_eq!(offsets(&page), vec![0, 1, 2, 3]);
     }
@@ -1116,14 +1145,14 @@ mod tests {
         let session = text_orders();
 
         assert!(
-            card_page(&session, CompiledFilter::contains("4111"))
+            card_page(&session, CompiledFilter::contains("4111").unwrap())
                 .await
                 .records
                 .is_empty(),
             "raw bytes must stay out of reach of a filter on a rewritten topic"
         );
         assert_eq!(
-            card_page(&session, CompiledFilter::contains("on order 2"))
+            card_page(&session, CompiledFilter::contains("on order 2").unwrap())
                 .await
                 .records
                 .len(),
@@ -1137,7 +1166,7 @@ mod tests {
         let session = cards();
         let query = query();
 
-        let page = fetch_page(&session, &query, &[0], &marks(0, 0), 4, LIMITS)
+        let page = fetch_page(&session, &query, &[0], &marks(0, 0))
             .await
             .unwrap();
 

@@ -40,7 +40,7 @@ impl LaneSource for ScramUserLane {
     }
 
     async fn fetch(
-        &self,
+        &mut self,
         _store: &ClusterStore,
         (): &(),
         _previous: Option<&Arc<ScramListing>>,
@@ -53,7 +53,7 @@ impl LaneSource for ScramUserLane {
     }
 
     fn publish(
-        &self,
+        &mut self,
         store: &ClusterStore,
         _previous: Option<&Arc<ScramListing>>,
         _next: &Arc<ScramListing>,

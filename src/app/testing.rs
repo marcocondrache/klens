@@ -382,6 +382,8 @@ impl Live {
             while let Some(chunk) = self.body.next().await {
                 let chunk = chunk.map_err(|error| error.to_string())?;
                 text.push_str(std::str::from_utf8(&chunk).expect("utf-8"));
+                // A body that never waits would otherwise spin past the timeout.
+                tokio::task::yield_now().await;
             }
             Ok::<_, String>(())
         };

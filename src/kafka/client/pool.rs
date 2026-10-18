@@ -1,5 +1,5 @@
 use std::collections::VecDeque;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
 use krafka::Kafka;
@@ -9,7 +9,7 @@ use crate::config::ScanTuning;
 use crate::kafka::error::KafkaError;
 use crate::kafka::model::PartitionWindow;
 
-use super::scan::{ReaderConfig, ScanLease, reader};
+use super::scan::{ReaderConfig, ScanLease, reader, retire};
 
 pub(super) struct ScanPool {
     kafka: Kafka,
@@ -41,10 +41,9 @@ impl ScanPoolInner {
     }
 
     fn take(&mut self, topic: &str, evicted: &mut Vec<Arc<Consumer>>) -> Option<Arc<Consumer>> {
-        self.expire(evicted);
+        self.expire(Instant::now(), evicted);
 
-        while let Some(index) = self.parked.iter().rposition(|parked| parked.topic == topic) {
-            let candidate = self.parked.remove(index).expect("index from rposition");
+        while let Some(candidate) = self.remove_newest(topic) {
             if !candidate.consumer.is_closed() {
                 return Some(candidate.consumer);
             }
@@ -53,8 +52,16 @@ impl ScanPoolInner {
         None
     }
 
+    fn remove_newest(&mut self, topic: &str) -> Option<Parked> {
+        let index = self
+            .parked
+            .iter()
+            .rposition(|parked| parked.topic == topic)?;
+        self.parked.remove(index)
+    }
+
     fn park(&mut self, topic: &str, consumer: Arc<Consumer>, evicted: &mut Vec<Arc<Consumer>>) {
-        self.expire(evicted);
+        self.expire(Instant::now(), evicted);
 
         let same_topic = self
             .parked
@@ -73,22 +80,14 @@ impl ScanPoolInner {
         });
     }
 
-    fn expire(&mut self, evicted: &mut Vec<Arc<Consumer>>) {
-        while self
+    fn expire(&mut self, now: Instant, evicted: &mut Vec<Arc<Consumer>>) {
+        while let Some(expired) = self
             .parked
-            .front()
-            .is_some_and(|parked| parked.since.elapsed() > self.ttl)
+            .pop_front_if(|parked| now.saturating_duration_since(parked.since) > self.ttl)
         {
-            let expired = self.parked.pop_front().expect("non-empty front");
             evicted.push(expired.consumer);
         }
     }
-}
-
-pub(super) fn retire(consumer: Arc<Consumer>) {
-    tokio::spawn(async move {
-        let _ = consumer.close().await;
-    });
 }
 
 impl ScanPool {
@@ -100,7 +99,7 @@ impl ScanPool {
         });
 
         let weak = Arc::downgrade(&pool);
-        let period = pool.inner.lock().expect("scan pool").ttl;
+        let period = tuning.pool_idle_ttl;
         tokio::spawn(async move {
             let mut ticker = tokio::time::interval(period);
             ticker.tick().await;
@@ -109,7 +108,7 @@ impl ScanPool {
                 let Some(pool) = weak.upgrade() else {
                     return;
                 };
-                pool.with_idle(|idle, evicted| idle.expire(evicted));
+                pool.with_idle(|idle, evicted| idle.expire(Instant::now(), evicted));
             }
         });
 
@@ -144,18 +143,22 @@ impl ScanPool {
 
     #[cfg(test)]
     pub(super) fn parked(&self, topic: &str) -> usize {
-        self.inner
-            .lock()
-            .expect("scan pool")
+        self.idle()
             .parked
             .iter()
             .filter(|parked| parked.topic == topic)
             .count()
     }
 
+    // Every update leaves the queue whole, so a guard a panic poisoned still
+    // holds a usable pool.
+    fn idle(&self) -> MutexGuard<'_, ScanPoolInner> {
+        self.inner.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
     fn with_idle<T>(&self, op: impl FnOnce(&mut ScanPoolInner, &mut Vec<Arc<Consumer>>) -> T) -> T {
         let mut evicted = Vec::new();
-        let result = op(&mut self.inner.lock().expect("scan pool"), &mut evicted);
+        let result = op(&mut self.idle(), &mut evicted);
         for consumer in evicted {
             retire(consumer);
         }
@@ -196,4 +199,42 @@ pub(super) async fn assign(
         consumer.seek(topic, window.partition, window.start).await?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::kafka::client::testing::Broker;
+
+    #[tokio::test]
+    async fn a_parked_consumer_is_retired_once_it_idles_past_the_ttl() {
+        let broker = Broker::orders(1).await;
+        let client = broker.client().await;
+        let window = PartitionWindow {
+            partition: 0,
+            start: 0,
+            end: 1,
+        };
+        let link = client.link().await.unwrap();
+        let consumer = link.scans.build("orders", &[window]).await.unwrap();
+        let mut idle = ScanPoolInner::new(&ScanTuning::default());
+        let mut evicted = Vec::new();
+
+        idle.park("orders", Arc::new(consumer), &mut evicted);
+        let parked_at = idle.parked[0].since;
+
+        idle.expire(parked_at + idle.ttl, &mut evicted);
+        assert_eq!(
+            idle.parked.len(),
+            1,
+            "a consumer idle for the ttl stays parked"
+        );
+
+        idle.expire(
+            parked_at + idle.ttl + Duration::from_millis(1),
+            &mut evicted,
+        );
+        assert!(idle.parked.is_empty());
+        assert_eq!(evicted.len(), 1);
+    }
 }

@@ -44,27 +44,27 @@ fn consumers(count: usize) -> FakeCluster {
 #[tokio::test(start_paused = true)]
 async fn a_background_group_refreshes_on_the_slow_tier() {
     let rig = Rig::local();
-    let lane = rig.offsets().with_tiers(
+    let mut lane = rig.offsets().with_tiers(
         Duration::from_secs(1),
         Duration::from_secs(2),
         Duration::from_secs(20),
     );
-    rig.poll(&rig.topology()).await;
+    rig.poll(&mut rig.topology()).await;
 
     assert_eq!(
-        rig.sweep(&lane).await.refreshed,
+        rig.sweep(&mut lane).await.refreshed,
         [Arc::from("order-processor")]
     );
 
     advance(Duration::from_secs(5)).await;
     assert!(
-        rig.sweep(&lane).await.is_empty(),
+        rig.sweep(&mut lane).await.is_empty(),
         "a group nobody is watching waits out the slow tier"
     );
 
     advance(Duration::from_secs(20)).await;
     assert_eq!(
-        rig.sweep(&lane).await.refreshed,
+        rig.sweep(&mut lane).await.refreshed,
         [Arc::from("order-processor")]
     );
 }
@@ -72,18 +72,18 @@ async fn a_background_group_refreshes_on_the_slow_tier() {
 #[tokio::test(start_paused = true)]
 async fn interest_promotes_a_group_to_the_fast_tier() {
     let rig = Rig::local();
-    let lane = rig.offsets().with_tiers(
+    let mut lane = rig.offsets().with_tiers(
         Duration::from_secs(1),
         Duration::from_secs(2),
         Duration::from_secs(20),
     );
-    rig.poll(&rig.topology()).await;
-    rig.sweep(&lane).await;
+    rig.poll(&mut rig.topology()).await;
+    rig.sweep(&mut lane).await;
 
     let lease = rig.store.interest.lease_group("order-processor");
     advance(Duration::from_secs(3)).await;
     assert_eq!(
-        rig.sweep(&lane).await.refreshed,
+        rig.sweep(&mut lane).await.refreshed,
         [Arc::from("order-processor")],
         "a watched group refreshes on the fast tier"
     );
@@ -91,7 +91,7 @@ async fn interest_promotes_a_group_to_the_fast_tier() {
     drop(lease);
     advance(Duration::from_secs(3)).await;
     assert!(
-        rig.sweep(&lane).await.is_empty(),
+        rig.sweep(&mut lane).await.is_empty(),
         "dropping the lease releases the fast tier immediately"
     );
 }
@@ -99,11 +99,11 @@ async fn interest_promotes_a_group_to_the_fast_tier() {
 #[tokio::test(start_paused = true)]
 async fn a_wave_commits_once_and_publishes_once() {
     let rig = Rig::new(consumers(12));
-    let lane = rig.offsets();
-    rig.poll(&rig.topology()).await;
+    let mut lane = rig.offsets();
+    rig.poll(&mut rig.topology()).await;
     let mut bus = rig.store.bus.probe();
 
-    let wave = rig.sweep(&lane).await;
+    let wave = rig.sweep(&mut lane).await;
 
     assert_eq!(wave.refreshed.len(), 13);
     assert_eq!(
@@ -118,15 +118,15 @@ async fn a_wave_commits_once_and_publishes_once() {
 #[tokio::test(start_paused = true)]
 async fn a_refresh_that_changes_nothing_publishes_nothing() {
     let rig = Rig::local();
-    let lane = rig.offsets();
+    let mut lane = rig.offsets();
     rig.poll_catalog().await;
     let mut bus = rig.store.bus.probe();
 
-    rig.sweep(&lane).await;
+    rig.sweep(&mut lane).await;
     assert_eq!(lags(&mut bus), [("order-processor".to_owned(), 5)]);
 
     advance(Duration::from_secs(30)).await;
-    let wave = rig.sweep(&lane).await;
+    let wave = rig.sweep(&mut lane).await;
     assert_eq!(wave.refreshed, [Arc::from("order-processor")]);
     assert_eq!(rig.store.offsets.version(), 2, "the table still commits");
     assert!(
@@ -139,7 +139,7 @@ async fn a_refresh_that_changes_nothing_publishes_nothing() {
         &[("orders.created", 0, 7), ("orders.created", 1, 5)],
     );
     advance(Duration::from_secs(30)).await;
-    rig.sweep(&lane).await;
+    rig.sweep(&mut lane).await;
     assert_eq!(
         lags(&mut bus),
         [("order-processor".to_owned(), 4)],
@@ -150,17 +150,17 @@ async fn a_refresh_that_changes_nothing_publishes_nothing() {
 #[tokio::test(start_paused = true)]
 async fn a_moved_high_watermark_republishes_the_lag() {
     let rig = Rig::new(FakeCluster::local().with_growing_watermarks(10));
-    let watermarks = rig.watermarks();
-    let lane = rig.offsets();
-    rig.poll(&rig.topology()).await;
-    rig.poll(&watermarks).await;
+    let mut watermarks = rig.watermarks();
+    let mut lane = rig.offsets();
+    rig.poll(&mut rig.topology()).await;
+    rig.poll(&mut watermarks).await;
     let mut bus = rig.store.bus.probe();
-    rig.sweep(&lane).await;
+    rig.sweep(&mut lane).await;
     assert_eq!(lags(&mut bus), [("order-processor".to_owned(), 5)]);
 
-    rig.poll(&watermarks).await;
+    rig.poll(&mut watermarks).await;
     advance(Duration::from_secs(30)).await;
-    rig.sweep(&lane).await;
+    rig.sweep(&mut lane).await;
 
     assert_eq!(
         lags(&mut bus),
@@ -174,21 +174,21 @@ async fn a_returning_group_publishes_its_lag_again() {
     let returning =
         group("returning", "orders.created", vec![0]).with_committed(&[("orders.created", 0, 2)]);
     let rig = Rig::new(FakeCluster::local().with_groups([returning.clone()]));
-    let topology = rig.topology();
-    let lane = rig.offsets();
-    rig.poll(&topology).await;
-    rig.poll(&rig.watermarks()).await;
+    let mut topology = rig.topology();
+    let mut lane = rig.offsets();
+    rig.poll(&mut topology).await;
+    rig.poll(&mut rig.watermarks()).await;
     let mut bus = rig.store.bus.probe();
-    rig.sweep(&lane).await;
+    rig.sweep(&mut lane).await;
     assert!(lags(&mut bus).contains(&("returning".to_owned(), 6)));
 
     rig.cluster.remove_group("returning");
-    rig.poll(&topology).await;
-    rig.sweep(&lane).await;
+    rig.poll(&mut topology).await;
+    rig.sweep(&mut lane).await;
 
     rig.cluster.put_group(returning);
-    rig.poll(&topology).await;
-    rig.sweep(&lane).await;
+    rig.poll(&mut topology).await;
+    rig.sweep(&mut lane).await;
 
     assert_eq!(
         lags(&mut bus),
@@ -200,12 +200,12 @@ async fn a_returning_group_publishes_its_lag_again() {
 #[tokio::test(start_paused = true)]
 async fn offset_fetches_respect_the_concurrency_cap() {
     let rig = Rig::new(consumers(16).with_delay(Api::CommittedOffsets, Duration::from_millis(50)));
-    let lane = rig
+    let mut lane = rig
         .offsets()
         .with_concurrency(NonZeroUsize::new(4).unwrap());
-    rig.poll(&rig.topology()).await;
+    rig.poll(&mut rig.topology()).await;
 
-    rig.sweep(&lane).await;
+    rig.sweep(&mut lane).await;
 
     assert_eq!(rig.cluster.calls(Api::CommittedOffsets), 17);
     assert_eq!(
@@ -218,10 +218,10 @@ async fn offset_fetches_respect_the_concurrency_cap() {
 #[tokio::test(start_paused = true)]
 async fn lag_is_computed_from_the_tables() {
     let rig = Rig::local();
-    let lane = rig.offsets();
+    let mut lane = rig.offsets();
     rig.poll_catalog().await;
 
-    rig.sweep(&lane).await;
+    rig.sweep(&mut lane).await;
 
     assert_eq!(
         rig.store.group_row("order-processor").unwrap().total_lag,
@@ -241,10 +241,10 @@ async fn an_empty_group_reports_the_lag_it_left_behind() {
     stopped.state = GroupState::Empty;
     stopped.members.clear();
     let rig = Rig::new(FakeCluster::local().with_groups([stopped]));
-    let lane = rig.offsets();
+    let mut lane = rig.offsets();
     rig.poll_catalog().await;
 
-    rig.sweep(&lane).await;
+    rig.sweep(&mut lane).await;
 
     let row = rig.store.group_row("stopped-consumer").unwrap();
     assert_eq!(
@@ -262,10 +262,10 @@ async fn an_active_group_fetches_only_what_it_consumes() {
         "order-processor",
         &[("orders.created", 0, 6), ("payments.settled", 0, 3)],
     );
-    let lane = rig.offsets();
+    let mut lane = rig.offsets();
     rig.poll_catalog().await;
 
-    rig.sweep(&lane).await;
+    rig.sweep(&mut lane).await;
 
     assert_eq!(
         rig.store.group_row("order-processor").unwrap().topic_names,
@@ -277,9 +277,9 @@ async fn an_active_group_fetches_only_what_it_consumes() {
 #[tokio::test(start_paused = true)]
 async fn a_failed_group_degrades_alone_and_keeps_its_last_offsets() {
     let rig = Rig::local();
-    let lane = rig.offsets();
-    rig.poll(&rig.topology()).await;
-    rig.sweep(&lane).await;
+    let mut lane = rig.offsets();
+    rig.poll(&mut rig.topology()).await;
+    rig.sweep(&mut lane).await;
     let before = Arc::clone(
         rig.store
             .offsets
@@ -292,7 +292,7 @@ async fn a_failed_group_degrades_alone_and_keeps_its_last_offsets() {
     rig.cluster
         .fail(Api::CommittedOffsets, "coordinator not available");
     advance(Duration::from_secs(30)).await;
-    let wave = rig.sweep(&lane).await;
+    let wave = rig.sweep(&mut lane).await;
 
     assert_eq!(wave.failed, [Arc::from("order-processor")]);
     assert!(wave.refreshed.is_empty());
@@ -310,15 +310,15 @@ async fn a_group_id_with_a_quote_and_a_newline_stays_on_its_fetch_warning() {
     let forged = "billing\"\nuser=\"mallory";
     let rig =
         Rig::new(FakeCluster::local().with_groups([group(forged, "orders.created", vec![0])]));
-    let lane = rig.offsets();
-    rig.poll(&rig.topology()).await;
+    let mut lane = rig.offsets();
+    rig.poll(&mut rig.topology()).await;
     rig.cluster.fail(
         Api::CommittedOffsets,
         &format!("could not resolve the coordinator for group '{forged}'"),
     );
     let logs = LogCapture::at(Level::WARN);
 
-    rig.sweep(&lane).await;
+    rig.sweep(&mut lane).await;
 
     logs.assert_contains(r#"offset fetch failed group="billing\"\nuser=\"mallory" error="#);
     logs.assert_lacks("\nuser=");
@@ -327,14 +327,14 @@ async fn a_group_id_with_a_quote_and_a_newline_stays_on_its_fetch_warning() {
 #[tokio::test(start_paused = true)]
 async fn a_removed_group_is_dropped_from_the_offset_table() {
     let rig = Rig::local();
-    let topology = rig.topology();
-    let lane = rig.offsets();
-    rig.poll(&topology).await;
-    rig.sweep(&lane).await;
+    let mut topology = rig.topology();
+    let mut lane = rig.offsets();
+    rig.poll(&mut topology).await;
+    rig.sweep(&mut lane).await;
 
     rig.cluster.remove_group("order-processor");
-    rig.poll(&topology).await;
-    let wave = rig.sweep(&lane).await;
+    rig.poll(&mut topology).await;
+    let wave = rig.sweep(&mut lane).await;
 
     assert_eq!(wave.dropped, [Arc::from("order-processor")]);
     assert!(rig.store.offsets.load().unwrap().groups.is_empty());
@@ -347,10 +347,10 @@ async fn a_removed_group_is_dropped_from_the_offset_table() {
             1,
         )]),
     );
-    rig.poll(&topology).await;
+    rig.poll(&mut topology).await;
 
     assert_eq!(
-        rig.sweep(&lane).await.refreshed,
+        rig.sweep(&mut lane).await.refreshed,
         [Arc::from("order-processor")],
         "a group that comes back is due immediately, not on its old schedule"
     );
@@ -364,14 +364,14 @@ async fn the_offset_lane_sweeps_nothing_until_topology_commits() {
 
     assert!(rig.store.offsets.health().checked_at.is_none());
 
-    rig.poll(&rig.topology()).await;
+    rig.poll(&mut rig.topology()).await;
     rig.store.offsets.committed().await;
 }
 
 #[tokio::test(start_paused = true)]
 async fn a_refresh_rereads_the_watched_groups_without_waiting_for_their_tier() {
     let mut rig = Rig::new(consumers(2));
-    rig.poll(&rig.topology()).await;
+    rig.poll(&mut rig.topology()).await;
     rig.spawn_offsets(rig.offsets());
     rig.store.offsets.committed().await;
     let _lease = rig.store.interest.lease_group("group-00");

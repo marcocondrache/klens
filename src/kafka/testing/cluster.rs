@@ -6,6 +6,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use bytes::Bytes;
 use foldhash::{HashMap, HashMapExt};
+use krafka::error::ErrorCode;
 
 use super::consumers::{CountingCodec, FakeScan, FakeTail};
 use super::fixtures::{config_entry, offsets, partition, topic};
@@ -14,7 +15,7 @@ use super::world;
 use crate::config::{KafkaTuning, ScanTuning};
 use crate::kafka::acl::{Acl, AclListing};
 use crate::kafka::cluster::ClusterIdentity;
-use crate::kafka::error::KafkaError;
+use crate::kafka::error::{KafkaError, Refusal};
 use crate::kafka::group::{CommittedOffset, GroupSnapshot, GroupState};
 use crate::kafka::metadata::{
     BrokerMetadata, MetadataSnapshot, NewTopic, TopicMetadata, Watermarks,
@@ -125,6 +126,17 @@ struct Traffic {
 struct Growth {
     step: i64,
     grown: i64,
+}
+
+fn refused(code: ErrorCode) -> KafkaError {
+    KafkaError::Refused(Refusal { code, reason: None })
+}
+
+fn refused_because(code: ErrorCode, reason: impl Into<String>) -> KafkaError {
+    KafkaError::Refused(Refusal {
+        code,
+        reason: Some(reason.into()),
+    })
 }
 
 pub(super) fn lock(world: &Mutex<World>) -> MutexGuard<'_, World> {
@@ -525,10 +537,11 @@ impl World {
     fn authorized_acls(&mut self) -> Result<&mut Vec<Acl>, KafkaError> {
         match &mut self.acls {
             AclListing::Enabled(rows) => Ok(rows),
-            AclListing::Disabled => Err(KafkaError::Refused(
-                "No Authorizer is configured.".to_owned(),
+            AclListing::Disabled => Err(refused_because(
+                ErrorCode::SecurityDisabled,
+                "No Authorizer is configured.",
             )),
-            AclListing::Denied => Err(KafkaError::Refused("ClusterAuthorizationFailed".to_owned())),
+            AclListing::Denied => Err(refused(ErrorCode::ClusterAuthorizationFailed)),
         }
     }
 
@@ -831,10 +844,10 @@ impl ClusterSession for FakeCluster {
     async fn create_topic(&self, topic: &NewTopic) -> Result<(), KafkaError> {
         self.answer(Api::CreateTopic).await?;
         if self.world().metadata.topic(&topic.name).is_some() {
-            return Err(KafkaError::Refused(format!(
-                "Topic '{}' already exists.",
-                topic.name
-            )));
+            return Err(refused_because(
+                ErrorCode::TopicAlreadyExists,
+                format!("Topic '{}' already exists.", topic.name),
+            ));
         }
         let partitions = topic.partitions.map_or(3, |count| count.get().into());
         self.add_topic(&topic.name, partitions, 0);
@@ -852,8 +865,9 @@ impl ClusterSession for FakeCluster {
     async fn delete_topic(&self, topic: &str) -> Result<(), KafkaError> {
         self.answer(Api::DeleteTopic).await?;
         if self.world().metadata.topic(topic).is_none() {
-            return Err(KafkaError::Refused(
-                "This server does not host this topic-partition.".to_owned(),
+            return Err(refused_because(
+                ErrorCode::UnknownTopicOrPartition,
+                "This server does not host this topic-partition.",
             ));
         }
         self.remove_topic(topic);
@@ -913,9 +927,12 @@ impl ClusterSession for FakeCluster {
             .map_or(0, |meta| meta.partitions.len());
         let total = usize::from(total.get());
         if total <= current {
-            return Err(KafkaError::Refused(format!(
-                "Topic currently has {current} partitions, which is higher than the requested {total}."
-            )));
+            return Err(refused_because(
+                ErrorCode::InvalidPartitions,
+                format!(
+                    "Topic currently has {current} partitions, which is higher than the requested {total}."
+                ),
+            ));
         }
         for id in current..total {
             self.add_partition(topic, i32::try_from(id).expect("a partition id"));
@@ -935,10 +952,10 @@ impl ClusterSession for FakeCluster {
                 .watermarks
                 .get_mut(&deletion.topic)
                 .and_then(|partitions| partitions.get_mut(&partition))
-                .ok_or_else(|| KafkaError::Refused("UnknownTopicOrPartition".to_owned()))?;
+                .ok_or_else(|| refused(ErrorCode::UnknownTopicOrPartition))?;
             let low = before.unwrap_or(marks.high);
             if low > marks.high {
-                return Err(KafkaError::Refused("OffsetOutOfRange".to_owned()));
+                return Err(refused(ErrorCode::OffsetOutOfRange));
             }
             marks.low = marks.low.max(low);
             lows.insert(partition, marks.low);
@@ -1030,7 +1047,7 @@ impl ClusterSession for FakeCluster {
         };
         let snapshot = &mut world.groups[index];
         if !snapshot.members.is_empty() {
-            return Err(KafkaError::Refused("UnknownMemberId".to_owned()));
+            return Err(refused(ErrorCode::UnknownMemberId));
         }
         for offset in offsets {
             snapshot.committed.retain(|committed| {
@@ -1049,10 +1066,10 @@ impl ClusterSession for FakeCluster {
             .iter()
             .position(|snapshot| snapshot.id == group)
         else {
-            return Err(KafkaError::Refused("GroupIdNotFound".to_owned()));
+            return Err(refused(ErrorCode::GroupIdNotFound));
         };
         if !world.groups[index].members.is_empty() {
-            return Err(KafkaError::Refused("NonEmptyGroup".to_owned()));
+            return Err(refused(ErrorCode::NonEmptyGroup));
         }
         world.groups.remove(index);
         Ok(())
@@ -1071,7 +1088,7 @@ impl ClusterSession for FakeCluster {
             .iter_mut()
             .find(|snapshot| snapshot.id == group)
         else {
-            return Err(KafkaError::Refused("GroupIdNotFound".to_owned()));
+            return Err(refused(ErrorCode::GroupIdNotFound));
         };
         let subscribed = snapshot.members.iter().any(|member| {
             member
@@ -1080,7 +1097,7 @@ impl ClusterSession for FakeCluster {
                 .any(|assignment| assignment.topic == topic)
         });
         if subscribed {
-            return Err(KafkaError::Refused("GroupSubscribedToTopic".to_owned()));
+            return Err(refused(ErrorCode::GroupSubscribedToTopic));
         }
         snapshot
             .committed
@@ -1237,7 +1254,7 @@ impl ClusterSession for FakeCluster {
         self.answer(Api::AlterClientQuota).await?;
         let mut world = self.world();
         let QuotaListing::Described(quotas) = &mut world.quotas else {
-            return Err(KafkaError::Refused("ClusterAuthorizationFailed".to_owned()));
+            return Err(refused(ErrorCode::ClusterAuthorizationFailed));
         };
         quotas.retain(|known| known.entity != quota.entity);
         if quota.values != QuotaValues::default() {
@@ -1253,7 +1270,7 @@ impl ClusterSession for FakeCluster {
         self.answer(Api::SetScramCredential).await?;
         let mut world = self.world();
         let ScramListing::Described(users) = &mut world.scram_users else {
-            return Err(KafkaError::Refused("ClusterAuthorizationFailed".to_owned()));
+            return Err(refused(ErrorCode::ClusterAuthorizationFailed));
         };
         let stored = ScramCredential {
             mechanism: credential.mechanism,
@@ -1285,7 +1302,7 @@ impl ClusterSession for FakeCluster {
         self.answer(Api::DeleteScramCredential).await?;
         let mut world = self.world();
         let ScramListing::Described(users) = &mut world.scram_users else {
-            return Err(KafkaError::Refused("ClusterAuthorizationFailed".to_owned()));
+            return Err(refused(ErrorCode::ClusterAuthorizationFailed));
         };
         let deleted = users
             .iter_mut()
@@ -1298,8 +1315,9 @@ impl ClusterSession for FakeCluster {
                 Some(existing.credentials.remove(index))
             });
         if deleted.is_none() {
-            return Err(KafkaError::Refused(
-                "Attempt to delete a user credential that does not exist".to_owned(),
+            return Err(refused_because(
+                ErrorCode::ResourceNotFound,
+                "Attempt to delete a user credential that does not exist",
             ));
         }
         users.retain(|existing| !existing.credentials.is_empty());
