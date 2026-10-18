@@ -185,12 +185,12 @@ impl Tail {
             match self.pipeline.screen(&mut raw) {
                 None => continue,
                 Some(Screen::Deferred) => batch.push(sort, Kept::Pending(raw)),
-                Some(Screen::NeedsPayload) => candidates.push(raw),
+                Some(Screen::NeedsPayload) => candidates.push((sort, raw)),
             }
         }
 
-        for kept in self.pipeline.decode_and_filter(candidates).await {
-            batch.push(kept.raw().sort_key(), kept);
+        for (sort, kept) in self.pipeline.decode_and_filter(candidates).await {
+            batch.push(sort, kept);
         }
         rejected
     }

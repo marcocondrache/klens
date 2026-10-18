@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 
+use super::batch::SortKey;
 use super::filter::{CompiledFilter, RawField, Verdict};
 use super::obfuscate::{Field, TopicObfuscator};
 use super::payload::{DecodedPayload, PayloadCodec, PayloadSlot, needs_decode};
@@ -141,17 +142,25 @@ impl RecordPipeline {
         }
     }
 
-    pub async fn decode_and_filter(&self, records: Vec<RawRecord>) -> Vec<Kept> {
+    pub async fn decode_and_filter(
+        &self,
+        records: Vec<(SortKey, RawRecord)>,
+    ) -> Vec<(SortKey, Kept)> {
         if records.is_empty() {
             return Vec::new();
         }
 
         let mut slots = Vec::with_capacity(records.len() * 2);
         let mut candidates = Vec::with_capacity(records.len());
-        for raw in records {
+        for (sort, raw) in records {
             let key = push_slot(&mut slots, raw.key.clone(), None);
             let value = push_slot(&mut slots, raw.value.clone(), self.fallback_schema_id);
-            candidates.push(Candidate { raw, key, value });
+            candidates.push(Candidate {
+                sort,
+                raw,
+                key,
+                value,
+            });
         }
 
         let mut decoded = self.decode(slots).await;
@@ -170,12 +179,15 @@ impl RecordPipeline {
                 .chain(value.iter_mut())
                 .for_each(DecodedPayload::drop_tree_if_rendered);
 
-            kept.push(Kept::Decoded(DecodedRecord {
-                raw: candidate.raw,
-                key,
-                value,
-                masked: self.obfuscated(),
-            }));
+            kept.push((
+                candidate.sort,
+                Kept::Decoded(DecodedRecord {
+                    raw: candidate.raw,
+                    key,
+                    value,
+                    masked: self.obfuscated(),
+                }),
+            ));
         }
         kept
     }
@@ -265,6 +277,7 @@ fn push_slot(
 }
 
 struct Candidate {
+    sort: SortKey,
     raw: RawRecord,
     key: Option<usize>,
     value: Option<usize>,

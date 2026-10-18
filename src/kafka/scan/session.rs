@@ -193,12 +193,11 @@ impl ScanSession {
             match self.pipeline.screen(&mut raw) {
                 None => continue,
                 Some(Screen::Deferred) => batch.push(sort, Kept::Pending(raw)),
-                Some(Screen::NeedsPayload) => candidates.push(raw),
+                Some(Screen::NeedsPayload) => candidates.push((sort, raw)),
             }
         }
 
-        for prepared in self.pipeline.decode_and_filter(candidates).await {
-            let sort = prepared.raw().sort_key();
+        for (sort, prepared) in self.pipeline.decode_and_filter(candidates).await {
             batch.push(sort, prepared);
         }
     }
