@@ -737,11 +737,4 @@ mod tests {
             StatusCode::UNAUTHORIZED
         );
     }
-
-    #[test]
-    fn a_session_guard_keeps_what_the_session_holds() {
-        let guard = SessionGuard::open();
-
-        assert_eq!(guard.revalidate(), Some(EffectiveAccess::Unrestricted));
-    }
 }

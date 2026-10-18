@@ -821,7 +821,7 @@ impl ClusterSession for FakeCluster {
                 topic.name
             )));
         }
-        let partitions = topic.partitions.map_or(1, |count| count.get().into());
+        let partitions = topic.partitions.map_or(3, |count| count.get().into());
         self.add_topic(&topic.name, partitions, 0);
         self.set_topic_configs(
             &topic.name,
