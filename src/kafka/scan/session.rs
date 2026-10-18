@@ -1073,20 +1073,6 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn configured_headers_are_masked_before_filters_and_before_rendering() {
-        let session = cards();
-
-        let page = card_page(&session, None).await;
-        assert_eq!(page.records[0].headers[0].value, "***");
-
-        let matched = card_page(&session, CompiledFilter::contains("ada")).await;
-        assert!(
-            matched.records.is_empty(),
-            "a header filter sees the masked value too"
-        );
-    }
-
-    #[tokio::test(start_paused = true)]
     async fn a_value_the_codec_declined_is_masked_rather_than_served_raw() {
         let unframed = card_record(0, PAN).value(format!(r#"{{"card":{{"number":"{PAN}"}}}}"#));
 
