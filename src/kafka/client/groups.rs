@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use krafka::admin::{ConsumerGroupDescription, ConsumerGroupListing};
-use krafka::error::KrafkaError;
+use krafka::error::{ErrorCode, KrafkaError};
 
 use crate::kafka::group::{GroupSnapshot, GroupState, is_internal_group};
 
@@ -31,13 +31,29 @@ pub(super) fn snapshots_from_descriptions(
     descriptions: HashMap<String, Result<ConsumerGroupDescription, KrafkaError>>,
 ) -> Vec<GroupSnapshot> {
     descriptions
-        .into_values()
-        .filter_map(Result::ok)
-        .filter(|description| {
-            !description.state.eq_ignore_ascii_case("dead")
-                && !is_internal_group(&description.group_id)
+        .into_iter()
+        .filter(|(id, _)| !is_internal_group(id))
+        .filter_map(|(id, described)| match described {
+            Ok(description) if description.state.eq_ignore_ascii_case("dead") => None,
+            Ok(description) => Some(GroupSnapshot::from_krafka(description)),
+            // Kafka 4 answers a group deleted since the listing with
+            // GROUP_ID_NOT_FOUND, where older brokers describe it as Dead.
+            Err(KrafkaError::Broker {
+                code: ErrorCode::GroupIdNotFound,
+                ..
+            }) => None,
+            // Any other failure says nothing about whether the group is gone.
+            // An unknown state keeps it listed and refuses a delete or reset
+            // until a describe succeeds.
+            Err(error) => {
+                tracing::warn!(
+                    group = id.as_str(),
+                    error = error.to_string().as_str(),
+                    "group describe failed"
+                );
+                Some(listed_snapshot(id, GroupState::Unknown))
+            }
         })
-        .map(GroupSnapshot::from_krafka)
         .collect()
 }
 
@@ -54,17 +70,17 @@ pub(super) fn split_empty_groups(
         if group.needs_description() {
             active.push(group.id);
         } else {
-            empty.push(empty_snapshot(group.id));
+            empty.push(listed_snapshot(group.id, GroupState::Empty));
         }
     }
 
     (active, empty)
 }
 
-fn empty_snapshot(id: String) -> GroupSnapshot {
+fn listed_snapshot(id: String, state: GroupState) -> GroupSnapshot {
     GroupSnapshot {
         id,
-        state: GroupState::Empty,
+        state,
         protocol: String::new(),
         members: Vec::new(),
         committed: Vec::new(),
@@ -95,8 +111,8 @@ mod tests {
         assert_eq!(
             empty,
             [
-                empty_snapshot("audit".to_owned()),
-                empty_snapshot("retired".to_owned())
+                listed_snapshot("audit".to_owned(), GroupState::Empty),
+                listed_snapshot("retired".to_owned(), GroupState::Empty)
             ]
         );
         assert_eq!(empty[0].state, GroupState::Empty);
@@ -120,6 +136,33 @@ mod tests {
         ]);
 
         assert!(active.is_empty());
-        assert_eq!(empty, [empty_snapshot("orders".to_owned())]);
+        assert_eq!(
+            empty,
+            [listed_snapshot("orders".to_owned(), GroupState::Empty)]
+        );
+    }
+
+    #[test]
+    fn a_group_that_fails_to_describe_stays_listed_unless_the_broker_says_it_is_gone() {
+        let described = HashMap::from([
+            (
+                "orders".to_owned(),
+                Err(KrafkaError::broker(
+                    ErrorCode::CoordinatorNotAvailable,
+                    "coordinator moving",
+                )),
+            ),
+            (
+                "audit".to_owned(),
+                Err(KrafkaError::broker(ErrorCode::GroupIdNotFound, "deleted")),
+            ),
+        ]);
+
+        let snapshots = snapshots_from_descriptions(described);
+
+        assert_eq!(
+            snapshots,
+            [listed_snapshot("orders".to_owned(), GroupState::Unknown)]
+        );
     }
 }

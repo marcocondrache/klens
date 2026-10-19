@@ -1448,6 +1448,24 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_group_deleted_before_its_describe_is_dropped() {
+        let broker = Broker::start().await;
+
+        let described = broker
+            .client()
+            .await
+            .transport()
+            .await
+            .expect("kafka link")
+            .admin
+            .describe_consumer_groups(["retired"], DescribeConsumerGroupsOptions::default())
+            .await
+            .expect("describe group");
+
+        assert_eq!(snapshots_from_descriptions(described), []);
+    }
+
+    #[tokio::test]
     async fn eight_groups_share_one_client() {
         let broker = Broker::orders(1).await;
         let client = Arc::new(broker.client().await);
