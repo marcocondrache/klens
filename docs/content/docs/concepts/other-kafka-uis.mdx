@@ -1,0 +1,90 @@
+---
+title: klens and other Kafka UIs
+description: How klens compares with Kafbat UI, AKHQ, Redpanda Console, and Kafdrop, and when another UI fits better.
+---
+
+Several web UIs for Kafka run on your own machines. This page compares klens with four of them: [Kafbat UI](https://github.com/kafbat/kafka-ui), [AKHQ](https://github.com/tchiotludo/akhq), [Redpanda Console](https://github.com/redpanda-data/console), and [Kafdrop](https://github.com/obsidiandynamics/kafdrop). The facts come from the code and docs of Kafbat UI 1.5.0, AKHQ 0.28.0, Redpanda Console 3.12.0, and Kafdrop 4.3.0, checked on October 20, 2026. These projects release often, so check their docs before you decide.
+
+The page leaves out paid products, such as Conduktor and Confluent Control Center, because what they offer depends on the plan you buy.
+
+## Features side by side
+
+A cell names the license when a feature needs a paid one, and says so when a feature exists in the API but not in the UI.
+
+### Project
+
+| | klens | Kafbat UI | AKHQ | Redpanda Console | Kafdrop |
+| --- | --- | --- | --- | --- | --- |
+| License | MIT | Apache-2.0 | Apache-2.0 | BSL 1.1, and RCL for enterprise features | Apache-2.0 |
+| Runtime | Rust | Java 25 | Java 25 | Go | Java 25 |
+| Clusters in one instance | Several | Several | Several | One | One |
+| Where pages read cluster state | An in-memory copy, read in the background | A cache refreshed every 30s, and Kafka | Kafka, on each request | Kafka, on each request | Kafka, on each request |
+| SASL mechanisms | PLAIN, SCRAM | PLAIN, SCRAM, OAUTHBEARER, GSSAPI, AWS MSK IAM | PLAIN, SCRAM, OAUTHBEARER, AWS MSK IAM | PLAIN, SCRAM, OAUTHBEARER, GSSAPI, AWS MSK IAM | Any that the Kafka Java client supports |
+| Prometheus metrics | No | Yes | Yes | Yes | No |
+
+### Records
+
+| | klens | Kafbat UI | AKHQ | Redpanda Console | Kafdrop |
+| --- | --- | --- | --- | --- | --- |
+| Search | Text | Text, or a CEL expression | Text | A JavaScript filter, or text in loaded records | Text |
+| Live tail | Yes | Yes | Yes | Yes | No |
+| Export | NDJSON | One record at a time | JSON | JSON, CSV | No |
+| Decode through a schema registry | Avro, JSON Schema, Protobuf | Avro, JSON Schema, Protobuf | Avro, JSON Schema, Protobuf | Avro, JSON Schema, Protobuf | Avro, Protobuf |
+| Decode Protobuf without a registry | No | Yes | Yes | Yes | Yes |
+| Produce | Yes | Yes | Yes | Yes | Off by default |
+| Hide record fields | Yes | Yes | Yes | No | No |
+
+### Administration
+
+In the **Change topics** row, "Yes" covers creating and deleting a topic, changing its configs, adding partitions, and deleting records.
+
+| | klens | Kafbat UI | AKHQ | Redpanda Console | Kafdrop |
+| --- | --- | --- | --- | --- | --- |
+| Change topics | Yes | Yes | Yes | Yes, but adding partitions is API only | Create and delete only |
+| Reset offsets and delete groups | Yes | Yes | Yes | Yes | No |
+| Register schemas and set compatibility | Yes | Yes | Yes | Yes | No |
+| ACLs | View, create, delete | View, create, delete | View | View, create, delete | View |
+| Client quotas | View, edit | API only | No | View, and edit through the API | No |
+| SCRAM users | View, add, delete | No | No | Needs the Redpanda Admin API | No |
+| Broker configs | View, edit | View, edit | View, edit | View | No |
+| Kafka Connect | No | Yes | Yes | Yes | No |
+| ksqlDB | No | Yes | Yes | No | No |
+
+### Access
+
+| | klens | Kafbat UI | AKHQ | Redpanda Console | Kafdrop |
+| --- | --- | --- | --- | --- | --- |
+| Sign-in | OIDC | OIDC, GitHub, LDAP, one local user | OIDC, GitHub, LDAP, local users, proxy header | OIDC or basic, with an Enterprise license | None |
+| Roles | Per cluster | Per cluster and resource | Per cluster and resource | Three fixed roles, with an Enterprise license | None |
+| Read-only clusters | The default, per cluster | Per cluster, when set | Through the `reader` group | Through the viewer role, with an Enterprise license | Flags for create, delete, and produce |
+| Audit log | No | Yes, to a topic | Yes, to a topic | No | No |
+| MCP server for AI agents | Yes, reads by default and three writes at most | Yes, since 1.3.0, with writes | No, an experimental one is on `dev` | No | No |
+
+## What klens does differently
+
+### Pages read a copy of the cluster
+
+AKHQ, Redpanda Console, and Kafdrop ask Kafka for metadata when a page loads, so the load on the brokers grows with the number of readers. Kafbat UI refreshes a cache of cluster statistics every 30 seconds, but its topic and consumer group pages still call Kafka. klens reads each cluster in the background into memory, and every page reads that copy. Ten readers cost the brokers what one reader costs. The price is data a few seconds old, which [how klens reads Kafka](/docs/concepts/how-klens-reads-kafka) explains.
+
+### Nothing changes until you allow it
+
+klens changes a cluster only when the cluster has `writable: true` and the user holds the privilege for the change. Without `auth`, it listens on `127.0.0.1` alone. The other UIs start more open. AKHQ starts with security off and gives every visitor the `admin` group. Kafdrop has no sign-in, and it lets anyone create and delete topics until you turn those flags off. Redpanda Console has no sign-in without an Enterprise license. Kafbat UI keeps a cluster writable until you set `readOnly`.
+
+You can make each of them safe. The difference is what happens when someone skips a setting. With klens, a skipped setting leaves the cluster read-only and the UI on the local machine.
+
+### Agents get a ceiling
+
+klens and Kafbat UI are the only two here with an MCP server in a release. Kafbat UI generates its tools from its API, so they reach deletes and offset resets too. klens starts from the other end. By default, an agent reads the catalog and the five read privileges, and `mcp.privileges` accepts three writes at most: `create_topics`, `produce`, and `register_schemas`. Most tools read the in-memory copy, so an agent's questions cost Kafka nothing. [The MCP ceiling](/docs/concepts/access-control#the-mcp-ceiling) explains why klens sets one fixed grant for every call.
+
+## When another UI fits better
+
+klens does not offer the features below. Pick another UI when you need one of them.
+
+- Kafka Connect or ksqlDB. Kafbat UI and AKHQ manage both, and Redpanda Console manages Kafka Connect.
+- A connection over OAUTHBEARER, Kerberos, or AWS MSK IAM. klens supports SASL PLAIN and SCRAM only.
+- Sign-in through LDAP, or with local users and no identity provider. AKHQ supports both. Kafbat UI supports LDAP and one local user.
+- An audit log of what users change. Kafbat UI and AKHQ write one to a Kafka topic.
+- Protobuf records without a schema registry. The other four decode them from `.proto` or descriptor files.
+- Filter expressions over records. Kafbat UI runs CEL, and Redpanda Console runs JavaScript, both on the server.
+- Prometheus metrics of the UI itself. klens serves no `/metrics` route.
+- Redpanda roles and Schema Registry ACLs on a Redpanda cluster. Redpanda Console manages both.
