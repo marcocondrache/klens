@@ -21,7 +21,14 @@ import { type Scene, Scenery } from '@/components/landing/scenery';
 import { Grain, Warp } from '@/components/landing/shaders';
 import { Showcase } from '@/components/landing/showcase';
 import { type LogLine, Terminal } from '@/components/landing/terminal';
-import { button, card, cardHeading, sectionHeading, split } from '@/components/landing/variants';
+import {
+  button,
+  card,
+  cardHeading,
+  prose,
+  sectionHeading,
+  split,
+} from '@/components/landing/variants';
 
 const description =
   'A web UI and MCP server for Kafka. Browse topics, records, consumer groups, and schemas across your clusters from one Rust binary.';
@@ -64,84 +71,82 @@ export default function Page() {
     <div className="pt-4 pb-6 md:pb-12">
       <Hero />
 
-      <div className="mx-auto mt-16 flex w-full max-w-[1400px] flex-col gap-24 px-6 md:px-12 lg:mt-24 lg:gap-32">
+      <div className="mx-auto mt-16 flex w-full max-w-[1400px] flex-col gap-24 px-6 md:px-12 lg:mt-24 lg:gap-28">
         <TryIt />
 
-        <section className="flex flex-col gap-16">
+        <section className="flex flex-col gap-10 lg:gap-12">
+          <SectionHeader title="Built for reading Kafka." />
+
           <Showcase
-            heading={<h2 className={sectionHeading()}>Built for reading Kafka.</h2>}
-            tabs={[
+            items={[
               {
                 value: 'search',
-                label: 'Find a record',
-                content: (
-                  <Feature
-                    title="Find any record."
-                    href="/docs/use/find-records"
-                    link="Find records in a topic"
-                    scene="dunes"
-                    position="20% 30%"
-                    demo={<RecordSearch />}
-                  >
+                title: 'Find any record.',
+                body: (
+                  <ShowcaseBody href="/docs/use/find-records" link="Find records in a topic">
                     Search a topic by text, partition, and time. klens runs the search on the
                     server, decodes Avro, JSON Schema, and Protobuf values, and exports the matches
                     as NDJSON.
-                  </Feature>
+                  </ShowcaseBody>
+                ),
+                demo: (
+                  <DemoScene scene="dunes" position="20% 30%">
+                    <RecordSearch />
+                  </DemoScene>
                 ),
               },
               {
                 value: 'live',
-                label: 'Follow it live',
-                content: (
-                  <Feature
-                    title="Follow a topic live."
-                    href="/docs/use/follow-a-topic-live"
-                    link="Follow a topic live"
-                    scene="sea"
-                    position="65% 40%"
-                    demo={<LiveTail />}
-                  >
+                title: 'Follow a topic live.',
+                body: (
+                  <ShowcaseBody href="/docs/use/follow-a-topic-live" link="Follow a topic live">
                     Switch to Live and records appear as soon as Kafka stores them. On a busy topic
                     the tail samples the newest records, so the page stays responsive.
-                  </Feature>
+                  </ShowcaseBody>
+                ),
+                demo: (
+                  <DemoScene scene="sea" position="65% 40%">
+                    <LiveTail />
+                  </DemoScene>
                 ),
               },
               {
                 value: 'lag',
-                label: 'Watch lag',
-                content: (
-                  <Feature
-                    title="Watch consumer lag."
+                title: 'Watch consumer lag.',
+                body: (
+                  <ShowcaseBody
                     href="/docs/use/reset-consumer-offsets"
                     link="Reset a group's offsets"
-                    scene="ridges"
-                    position="30% 35%"
-                    demo={<ConsumerLag />}
                   >
                     See each group with its members and its lag on every partition. Reset its
                     offsets after a preview of the lag the change leaves, or delete the offsets of a
                     topic it no longer reads.
-                  </Feature>
+                  </ShowcaseBody>
+                ),
+                demo: (
+                  <DemoScene scene="ridges" position="30% 35%">
+                    <ConsumerLag />
+                  </DemoScene>
                 ),
               },
             ]}
           />
 
-          <div className={split('text-sm lg:items-center')}>
-            <div>
-              <h3 className={cardHeading()}>Manage more than topics.</h3>
-              <p className="mb-4 text-fd-muted-foreground">
-                Beyond topics and groups, klens manages schemas, ACL bindings, SCRAM users, client
-                quotas, and broker configs. Each change is its own privilege, so a role can reset
-                offsets without the right to delete a topic.
-              </p>
-              <DocsLink href="/docs/reference/privileges">See every privilege</DocsLink>
-            </div>
+          <div className={split('lg:items-center')}>
+            <FeatureText
+              title="Manage more than topics."
+              href="/docs/reference/privileges"
+              link="See every privilege"
+            >
+              Beyond topics and groups, klens manages schemas, ACL bindings, SCRAM users, client
+              quotas, and broker configs. Each change is its own privilege, so a role can reset
+              offsets without the right to delete a topic.
+            </FeatureText>
             <WritePrivileges />
           </div>
         </section>
 
-        <section className="flex flex-col gap-10">
+        <section className="flex flex-col gap-10 lg:gap-12">
           <SectionHeader title="A page costs Kafka nothing.">
             <p>
               klens reads each cluster on a fixed schedule into an in-memory projection, and every
@@ -160,19 +165,19 @@ export default function Page() {
           </div>
         </section>
 
-        <section className="flex flex-col gap-10">
+        <section className="flex flex-col gap-10 lg:gap-12">
           <SectionHeader title="Safe to open up." />
 
           <div className={split('gap-6 lg:gap-6')}>
-            <div className={card('flex flex-col')}>
-              <h3 className={cardHeading()}>Read-only by default.</h3>
-              <p className="mb-4 text-fd-muted-foreground">
+            <div className={card('flex flex-col gap-8 lg:p-8')}>
+              <FeatureText
+                title="Read-only by default."
+                href="/docs/operate/allow-changes"
+                link="Allow changes on a cluster"
+              >
                 klens changes nothing on a cluster until you mark it writable. With sign-in and
                 roles, only the people who hold the privilege for a change can make it.
-              </p>
-              <DocsLink href="/docs/operate/allow-changes" className="mb-6">
-                Allow changes on a cluster
-              </DocsLink>
+              </FeatureText>
               <ServerCodeBlock
                 lang="yaml"
                 codeblock={{ title: 'config.yaml', className: 'my-0 mt-auto' }}
@@ -186,36 +191,38 @@ export default function Page() {
               />
             </div>
 
-            <div className={card('flex flex-col')}>
-              <h3 className={cardHeading()}>Sign in with OpenID Connect.</h3>
-              <p className="mb-4 text-fd-muted-foreground">
+            <div className={card('flex flex-col gap-8 lg:p-8')}>
+              <FeatureText
+                title="Sign in with OpenID Connect."
+                href="/docs/operate/require-sign-in"
+                link="Require sign-in"
+              >
                 Give each group in your identity provider its own privileges on each cluster. A
                 cluster that no role covers stays invisible.
-              </p>
-              <DocsLink href="/docs/operate/require-sign-in" className="mb-6">
-                Require sign-in
-              </DocsLink>
+              </FeatureText>
               <div className="mt-auto">
                 <AccessMatrix />
               </div>
             </div>
           </div>
 
-          <Feature
-            title="Hide private fields."
-            href="/docs/operate/hide-sensitive-fields"
-            link="Hide sensitive fields"
-            scene="mist"
-            position="50% 85%"
-            demo={<ObfuscatedRecord />}
-          >
-            Hash, mask, or drop card numbers, emails, and any other field for every reader, admins
-            included. Equal values get equal tokens, so records stay easy to correlate. Search sees
-            what the page shows, so a filter can never recover a hidden value.
-          </Feature>
+          <div className={split('lg:items-center')}>
+            <FeatureText
+              title="Hide private fields."
+              href="/docs/operate/hide-sensitive-fields"
+              link="Hide sensitive fields"
+            >
+              Hash, mask, or drop card numbers, emails, and any other field for every reader, admins
+              included. Equal values get equal tokens, so records stay easy to correlate. Search
+              sees what the page shows, so a filter can never recover a hidden value.
+            </FeatureText>
+            <DemoScene scene="mist" position="50% 85%">
+              <ObfuscatedRecord />
+            </DemoScene>
+          </div>
         </section>
 
-        <section className="flex flex-col gap-10">
+        <section className="flex flex-col gap-10 lg:gap-12">
           <SectionHeader title="Ready for agents.">
             <p>
               Turn on MCP. Agents in Claude Code, VS Code, or Cursor then read the same projection
@@ -235,16 +242,16 @@ export default function Page() {
             </div>
           </Scenery>
 
-          <div className={split('text-sm lg:items-center')}>
-            <div>
-              <h3 className={cardHeading()}>Under a ceiling you set.</h3>
-              <p className="mb-4 text-fd-muted-foreground">
-                The <code className="font-mono text-xs">mcp</code> block names the clusters agents
-                reach and the privileges they hold. A tool whose privilege it leaves out never
-                reaches the agent, so agents change nothing until it names a write.
-              </p>
-              <DocsLink href="/docs/reference/mcp-tools">See every MCP tool</DocsLink>
-            </div>
+          <div className={split('lg:items-center')}>
+            <FeatureText
+              title="Under a ceiling you set."
+              href="/docs/reference/mcp-tools"
+              link="See every MCP tool"
+            >
+              The <code className="font-mono text-[0.9em]">mcp</code> block names the clusters
+              agents reach and the privileges they hold. A tool whose privilege it leaves out never
+              reaches the agent, so agents change nothing until it names a write.
+            </FeatureText>
             <McpCeiling />
           </div>
         </section>
@@ -257,22 +264,22 @@ export default function Page() {
 
 function TryIt() {
   return (
-    <section className={split('text-sm lg:items-center')}>
+    <section className={split('lg:items-center')}>
       <div className="flex flex-col gap-6">
-        <div className="flex flex-col gap-4">
-          <h2 className={sectionHeading()}>One binary, one config file.</h2>
-          <p className="text-base text-fd-muted-foreground">
-            klens serves the web UI, a JSON API, and an MCP server from one Rust process. Name a
-            broker in <code className="font-mono text-sm">config.yaml</code>, then start the image.
-          </p>
-        </div>
+        <h2 className={sectionHeading()}>One binary, one config file.</h2>
+        <p className={prose()}>
+          klens serves the web UI, a JSON API, and an MCP server from one Rust process. Name a
+          broker in <code className="font-mono text-[0.9em]">config.yaml</code>, then start the
+          image.
+        </p>
         <ServerCodeBlock
           lang="yaml"
           code={configYaml}
-          codeblock={{ title: 'config.yaml', className: 'my-0' }}
+          codeblock={{ title: 'config.yaml', className: 'my-0 text-sm' }}
         />
-        <p className="text-fd-muted-foreground">
-          Then open <code className="font-mono text-xs">localhost:8080</code>. No broker at hand?{' '}
+        <p className={prose('lg:text-base')}>
+          Then open <code className="font-mono text-[0.9em]">localhost:8080</code>. No broker at
+          hand?{' '}
           <Link href="/docs/getting-started" className="font-medium text-brand hover:underline">
             The tutorial
           </Link>{' '}
@@ -280,7 +287,7 @@ function TryIt() {
         </p>
       </div>
 
-      <div className="relative isolate overflow-hidden rounded-2xl border p-3 sm:p-8">
+      <div className="relative isolate overflow-hidden rounded-2xl border p-3 text-sm sm:p-8">
         <div aria-hidden className="pointer-events-none absolute inset-0 -z-1">
           <div className="absolute inset-0 bg-[radial-gradient(70%_90%_at_100%_0%,color-mix(in_oklch,var(--color-brand-glow)_30%,transparent),transparent)]" />
           <Warp className="absolute inset-0 size-full opacity-60 mask-[linear-gradient(to_bottom,white_20%,transparent)]" />
@@ -313,10 +320,10 @@ function Closing() {
         'relative isolate flex min-h-[600px] flex-col items-center overflow-hidden px-6 pt-16 text-center lg:pt-20',
       )}
     >
-      <h2 className="text-4xl font-medium tracking-tight text-balance text-fd-foreground lg:text-5xl">
+      <h2 className="text-4xl font-medium tracking-tight text-balance text-fd-foreground lg:text-6xl">
         Bring Kafka into focus.
       </h2>
-      <p className="mt-4 max-w-md text-base text-fd-muted-foreground">
+      <p className={prose('mt-5 max-w-lg')}>
         klens is open source under the MIT license. Start the image with Docker, or install the Helm
         chart on Kubernetes.
       </p>
@@ -342,14 +349,41 @@ function Closing() {
 
 function SectionHeader({ title, children }: { title: string; children?: ReactNode }) {
   return (
-    <div className={split('lg:items-start')}>
+    <div className={split('gap-6 lg:items-start')}>
       <h2 className={sectionHeading()}>{title}</h2>
-      {children && (
-        <div className="flex flex-col gap-4 text-base text-fd-muted-foreground lg:pt-1.5">
-          {children}
-        </div>
-      )}
+      {children && <div className={prose('flex flex-col gap-4 lg:pt-2')}>{children}</div>}
     </div>
+  );
+}
+
+function FeatureText({
+  title,
+  href,
+  link,
+  children,
+}: {
+  title: string;
+  href: string;
+  link: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="flex flex-col gap-4">
+      <h3 className={cardHeading()}>{title}</h3>
+      <p className={prose()}>{children}</p>
+      <DocsLink href={href} className="mt-2">
+        {link}
+      </DocsLink>
+    </div>
+  );
+}
+
+function ShowcaseBody({ href, link, children }: { href: string; link: string; children: string }) {
+  return (
+    <>
+      <p className={prose()}>{children}</p>
+      <DocsLink href={href}>{link}</DocsLink>
+    </>
   );
 }
 
@@ -366,7 +400,7 @@ function DocsLink({
     <Link
       href={href}
       className={cn(
-        'inline-flex w-fit items-center gap-1.5 text-sm font-medium text-brand hover:underline',
+        'inline-flex w-fit items-center gap-1.5 text-base font-medium text-brand hover:underline',
         className,
       )}
     >
@@ -376,37 +410,22 @@ function DocsLink({
   );
 }
 
-function Feature({
-  title,
-  href,
-  link,
+function DemoScene({
   scene,
   position,
-  demo,
   children,
 }: {
-  title: string;
-  href: string;
-  link: string;
   scene: Scene;
   position: string;
-  demo: ReactNode;
-  children: string;
+  children: ReactNode;
 }) {
   return (
-    <div className={split('text-sm')}>
-      <div className="lg:pt-10">
-        <h3 className={cardHeading()}>{title}</h3>
-        <p className="mb-4 text-fd-muted-foreground">{children}</p>
-        <DocsLink href={href}>{link}</DocsLink>
-      </div>
-      <Scenery
-        scene={scene}
-        position={position}
-        className="flex min-h-[460px] flex-col justify-center p-4 sm:p-10"
-      >
-        {demo}
-      </Scenery>
-    </div>
+    <Scenery
+      scene={scene}
+      position={position}
+      className="flex min-h-[420px] flex-col justify-center p-4 text-sm sm:p-10"
+    >
+      {children}
+    </Scenery>
   );
 }
