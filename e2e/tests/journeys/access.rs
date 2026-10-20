@@ -97,21 +97,16 @@ async fn acls_created_through_klens_are_listed_and_deleted_again() {
 async fn a_binding_kafka_refuses_carries_the_broker_reason() {
     let kafka = Kafka::with_authorizer().await;
     let klens = Klens::over(&kafka).await;
+    let mut cluster = binding("User:alice", "LITERAL", "orders");
+    cluster["resourceType"] = json!("CLUSTER");
 
-    let (status, body) = klens
-        .post(
-            ACLS,
-            &json!({ "bindings": [binding("alice", "LITERAL", "orders")] }),
-        )
-        .await;
+    let (status, body) = klens.post(ACLS, &json!({ "bindings": [cluster] })).await;
 
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
     assert_eq!(body["code"], "REFUSED");
-    assert!(
-        body["error"]
-            .as_str()
-            .is_some_and(|error| error.contains("alice")),
-        "{body}"
+    assert_eq!(
+        body["error"],
+        "kafka refused the change: The only valid name for the CLUSTER resource is kafka-cluster"
     );
 }
 
