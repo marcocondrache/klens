@@ -22,7 +22,15 @@ export function card(className?: string) {
 
 export function sectionHeading(className?: string) {
   return cn(
-    'col-span-full mt-12 text-center text-3xl font-medium tracking-tight text-brand lg:text-4xl',
+    'text-3xl font-medium tracking-tight text-balance text-fd-foreground lg:text-4xl',
+    className,
+  );
+}
+
+/** Every row shares these two tracks, so prose lines up on the left and demos on the right. */
+export function split(className?: string) {
+  return cn(
+    'grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] lg:gap-12',
     className,
   );
 }
