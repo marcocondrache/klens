@@ -3,15 +3,8 @@ import {
   DownloadIcon,
   FileJson2Icon,
   FilterIcon,
-  GaugeIcon,
-  KeyRoundIcon,
-  ListTreeIcon,
   type LucideIcon,
   SearchIcon,
-  SendIcon,
-  ServerIcon,
-  ShieldCheckIcon,
-  UsersIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { InView } from './in-view';
@@ -136,37 +129,6 @@ export function ConsumerLag() {
           </span>
         </div>
       ))}
-    </div>
-  );
-}
-
-const resources: { icon: LucideIcon; name: string; changes: string }[] = [
-  { icon: ListTreeIcon, name: 'Topics', changes: 'Create, delete, add partitions, edit configs' },
-  { icon: FileJson2Icon, name: 'Schemas', changes: 'Register versions, set compatibility' },
-  { icon: UsersIcon, name: 'Consumer groups', changes: 'Reset or delete offsets' },
-  { icon: ShieldCheckIcon, name: 'ACLs', changes: 'Create and delete bindings' },
-  { icon: KeyRoundIcon, name: 'SCRAM users', changes: 'Set and delete credentials' },
-  { icon: GaugeIcon, name: 'Client quotas', changes: 'Set and remove quotas' },
-  { icon: ServerIcon, name: 'Brokers', changes: 'Edit broker configs' },
-  { icon: SendIcon, name: 'Records', changes: 'Produce and delete records' },
-];
-
-export function ClusterResources() {
-  return (
-    <div className="@container overflow-hidden rounded-xl border bg-fd-popover text-fd-popover-foreground">
-      <ul className="grid gap-px bg-fd-border/60 @sm:grid-cols-2">
-        {resources.map(({ icon: Icon, name, changes }) => (
-          <li key={name} className="flex items-start gap-3 bg-fd-popover p-3">
-            <span className="rounded-md border border-brand/30 bg-brand/10 p-1.5 text-brand">
-              <Icon className="size-3.5" />
-            </span>
-            <span className="flex min-w-0 flex-col gap-0.5">
-              <span className="font-medium text-nowrap">{name}</span>
-              <span className="text-xs text-fd-muted-foreground">{changes}</span>
-            </span>
-          </li>
-        ))}
-      </ul>
     </div>
   );
 }

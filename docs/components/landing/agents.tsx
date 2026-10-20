@@ -28,33 +28,3 @@ export function AgentChat() {
     </div>
   );
 }
-
-const tools = [
-  { name: 'klens_clusters', description: 'Clusters and their health' },
-  { name: 'klens_search', description: 'Topics, groups, brokers, and subjects by name' },
-  { name: 'klens_group_describe', description: 'Members, lag per partition, what looks wrong' },
-  { name: 'klens_schema_get', description: 'The text of a schema, read from the registry' },
-];
-
-export function ToolList() {
-  return (
-    <div className="@container overflow-hidden rounded-xl border bg-fd-popover text-fd-popover-foreground">
-      <ul>
-        {tools.map((tool) => (
-          <li
-            key={tool.name}
-            className="flex flex-col gap-1 border-b border-fd-border/60 px-4 py-2.5 last:border-b-0 @md:flex-row @md:items-center @md:gap-3"
-          >
-            <span className="flex items-center gap-2 font-mono text-xs font-medium text-nowrap">
-              <WrenchIcon className="size-3.5 text-brand" />
-              {tool.name}
-            </span>
-            <span className="text-xs text-fd-muted-foreground @md:ms-auto @md:text-end">
-              {tool.description}
-            </span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
