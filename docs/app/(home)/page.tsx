@@ -7,14 +7,16 @@ import { cn } from '@/lib/cn';
 import { source } from '@/lib/source';
 import { getPageImageUrl, repoUrl } from '@/lib/shared';
 import { AccessMatrix } from '@/components/landing/access';
-import { AgentChat, ToolList } from '@/components/landing/agents';
+import { AgentChat } from '@/components/landing/agents';
+import { McpCeiling } from '@/components/landing/ceiling';
 import { GitHubIcon } from '@/components/landing/github-icon';
 import { Hero } from '@/components/landing/hero';
 import { Lens } from '@/components/landing/lens';
 import { LiveTail } from '@/components/landing/live-tail';
 import { ObfuscatedRecord } from '@/components/landing/obfuscation';
 import { Projection } from '@/components/landing/projection';
-import { ClusterResources, ConsumerLag, RecordSearch } from '@/components/landing/reading';
+import { WritePrivileges } from '@/components/landing/privileges';
+import { ConsumerLag, RecordSearch } from '@/components/landing/reading';
 import { type Scene, Scenery } from '@/components/landing/scenery';
 import { Grain, Warp } from '@/components/landing/shaders';
 import { Showcase } from '@/components/landing/showcase';
@@ -130,11 +132,12 @@ export default function Page() {
               <h3 className={cardHeading()}>Manage more than topics.</h3>
               <p className="mb-4 text-fd-muted-foreground">
                 Beyond topics and groups, klens manages schemas, ACL bindings, SCRAM users, client
-                quotas, and broker configs.
+                quotas, and broker configs. Each change is its own privilege, so a role can reset
+                offsets without the right to delete a topic.
               </p>
               <DocsLink href="/docs/reference/privileges">See every privilege</DocsLink>
             </div>
-            <ClusterResources />
+            <WritePrivileges />
           </div>
         </section>
 
@@ -233,26 +236,16 @@ export default function Page() {
           </Scenery>
 
           <div className={split('text-sm lg:items-center')}>
-            <div className="flex flex-col">
+            <div>
               <h3 className={cardHeading()}>Under a ceiling you set.</h3>
               <p className="mb-4 text-fd-muted-foreground">
                 The <code className="font-mono text-xs">mcp</code> block names the clusters agents
-                reach and the privileges they hold. Agents change nothing until it names a write.
+                reach and the privileges they hold. A tool whose privilege it leaves out never
+                reaches the agent, so agents change nothing until it names a write.
               </p>
-              <DocsLink href="/docs/reference/mcp-tools" className="mb-6">
-                See every MCP tool
-              </DocsLink>
-              <ServerCodeBlock
-                lang="yaml"
-                codeblock={{ title: 'config.yaml', className: 'my-0' }}
-                code={`mcp:
-  bind: 127.0.0.1:8090
-  # no record payloads or ACLs
-  privileges: [topic_configs, schema_text]
-  clusters: [production, staging]`}
-              />
+              <DocsLink href="/docs/reference/mcp-tools">See every MCP tool</DocsLink>
             </div>
-            <ToolList />
+            <McpCeiling />
           </div>
         </section>
 
