@@ -3,6 +3,8 @@ title: Connect to a cluster
 description: Add a Kafka cluster over plaintext, TLS, mutual TLS, or SASL, and point it at a Schema Registry.
 ---
 
+klens needs Apache Kafka 3.9 or later. Kafka 3.9 is the oldest release that [krafka](https://github.com/hupe1980/krafka), the Kafka client in klens, supports. klens has no tests against older releases or against Kafka-compatible brokers such as Redpanda.
+
 Each cluster is an entry under `clusters` in `config.yaml`. The key is the name the UI shows, and the UI lists clusters in file order. Restart klens after you change the file.
 
 ## Add a plaintext cluster

@@ -3,7 +3,7 @@ title: klens
 description: A web UI and MCP server for Kafka, served by one Rust binary.
 ---
 
-klens shows the topics, records, consumer groups, brokers, schemas, ACLs, quotas, and SCRAM users of one or more Kafka clusters. It is one binary that serves the UI, a JSON API, and, when you turn it on, tools for AI agents over MCP.
+klens shows the topics, records, consumer groups, brokers, schemas, ACLs, quotas, and SCRAM users of one or more Kafka clusters. It is one binary that serves the UI, a JSON API, and, when you turn it on, tools for AI agents over MCP. Each cluster must run Apache Kafka 3.9 or later.
 
 klens reads each cluster in the background into memory, and every page reads that copy. A page costs Kafka nothing, however many people have it open. Only record reads, live tails, and changes go to Kafka when someone asks.
 
