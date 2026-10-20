@@ -15,7 +15,7 @@ use zeroize::Zeroizing;
 
 use crate::{PATIENCE, POLL};
 
-const IMAGE_TAG: &str = "4.1.0";
+const DEFAULT_IMAGE_TAG: &str = "4.1.0";
 const CREATE_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub struct Kafka {
@@ -44,13 +44,14 @@ impl Kafka {
     }
 
     async fn start_with(env: &[(&str, &str)]) -> Self {
+        let tag = std::env::var("KAFKA_IMAGE_TAG").unwrap_or_else(|_| DEFAULT_IMAGE_TAG.to_owned());
         // The native image's setup step segfaults now and then, and the JVM
         // image's default 1 GiB heap would crowd a runner with a broker per test.
         // Kafka 3.9 advertises the controller listener in combined mode and
         // refuses to start when that listener binds 0.0.0.0.
         let mut request = apache::Kafka::default()
             .with_jvm_image()
-            .with_tag(IMAGE_TAG)
+            .with_tag(tag)
             .with_env_var("KAFKA_HEAP_OPTS", "-Xms256m -Xmx256m")
             .with_env_var(
                 "KAFKA_LISTENERS",
