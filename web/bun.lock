@@ -10,7 +10,7 @@
         "@fontsource-variable/geist-mono": "^5.3.0",
         "@tailwindcss/vite": "^4.3.3",
         "@tanstack/highlight": "^1.0.0",
-        "@tanstack/react-hotkeys": "^0.15.0",
+        "@tanstack/react-hotkeys": "^0.16.0",
         "@tanstack/react-query": "^5.102.8",
         "@tanstack/react-router": "^1.170.35",
         "@tanstack/react-table": "^9.2.4",
@@ -358,11 +358,11 @@
 
     "@tanstack/history": ["@tanstack/history@1.162.5", "", {}, "sha512-w1+YvwmTkwt5n8yUqEH3IWZ9DsmorCZW/EQ3KYHnqEgIkOZpH54NvW6/Epq3Dzb8H0ifIeYX8PExvrNLIH5FIA=="],
 
-    "@tanstack/hotkeys": ["@tanstack/hotkeys@0.16.0", "", { "dependencies": { "@tanstack/store": "^0.11.2" } }, "sha512-24g+YYi6l4OtFuvKcVPuTF/MY2ChTLvhDnQJFuTWuc2ugFYOJ7eolwagoLjuseSrTNpc1wTxGlQziEoVj8qMlA=="],
+    "@tanstack/hotkeys": ["@tanstack/hotkeys@0.17.0", "", { "dependencies": { "@tanstack/store": "^0.11.2" } }, "sha512-HhgfF+Wqz3ofCQaDHXSkItRbLXmigoHsxJsQGbGc3Kgu/gunwcFLqVubfoUmdRK/YN7fuZYN2vEOk3oMGxSWTg=="],
 
     "@tanstack/query-core": ["@tanstack/query-core@5.104.4", "", {}, "sha512-nU4Yrb8Sjn0DeVb7PKG9uiepNavys3yoxy1FX0hViY4/P6Ng/mBje2SMl7i9812rtyHKtHyqiaC/td6GkI8StA=="],
 
-    "@tanstack/react-hotkeys": ["@tanstack/react-hotkeys@0.15.0", "", { "dependencies": { "@tanstack/hotkeys": "0.16.0", "@tanstack/react-store": "^0.11.2" }, "peerDependencies": { "react": ">=16.8", "react-dom": ">=16.8" } }, "sha512-EbmRxzpqB0k0y6Wp1uALWICeJ2YC1EelD3kAmCqqioUTBua1qzno9ctrniH16xeL0srAUDvppJRbfEVjtUD5Dw=="],
+    "@tanstack/react-hotkeys": ["@tanstack/react-hotkeys@0.16.0", "", { "dependencies": { "@tanstack/hotkeys": "0.17.0", "@tanstack/react-store": "^0.11.2" }, "peerDependencies": { "react": ">=16.8", "react-dom": ">=16.8" } }, "sha512-mP1ZFjBdqllK5xrUU2BGi2ZAryrVmgCAsWSEVJWq1w+qkxRNZ+c5h+J7+99sTwhVa2dLIgnJwE2PzITSopUZnA=="],
 
     "@tanstack/react-query": ["@tanstack/react-query@5.104.4", "", { "dependencies": { "@tanstack/query-core": "5.104.4" }, "peerDependencies": { "@types/react": "^18 || ^19", "react": "^18 || ^19" }, "optionalPeers": ["@types/react"] }, "sha512-YD5QkvUNy8Ey3LbOy2vwL97JjoYycwDv++cWAibTe+9BLYvl3c09XpYp5dZ2VcxcguwoDhGF+utYJYb79RB36w=="],
 
