@@ -46,10 +46,16 @@ impl Kafka {
     async fn start_with(env: &[(&str, &str)]) -> Self {
         // The native image's setup step segfaults now and then, and the JVM
         // image's default 1 GiB heap would crowd a runner with a broker per test.
+        // Kafka 3.9 advertises the controller listener in combined mode and
+        // refuses to start when that listener binds 0.0.0.0.
         let mut request = apache::Kafka::default()
             .with_jvm_image()
             .with_tag(IMAGE_TAG)
-            .with_env_var("KAFKA_HEAP_OPTS", "-Xms256m -Xmx256m");
+            .with_env_var("KAFKA_HEAP_OPTS", "-Xms256m -Xmx256m")
+            .with_env_var(
+                "KAFKA_LISTENERS",
+                "PLAINTEXT://0.0.0.0:9092,BROKER://0.0.0.0:9093,CONTROLLER://localhost:9094",
+            );
         for (name, value) in env {
             request = request.with_env_var(*name, *value);
         }
