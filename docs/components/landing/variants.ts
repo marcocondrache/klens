@@ -22,7 +22,7 @@ export function card(className?: string) {
 
 export function sectionHeading(className?: string) {
   return cn(
-    'text-3xl font-medium tracking-tight text-balance text-fd-foreground lg:text-4xl',
+    'text-3xl font-medium tracking-tight text-balance text-fd-foreground md:text-4xl lg:text-[2.75rem] lg:leading-[1.1]',
     className,
   );
 }
@@ -36,5 +36,12 @@ export function split(className?: string) {
 }
 
 export function cardHeading(className?: string) {
-  return cn('mb-4 text-xl font-medium tracking-tight text-fd-foreground lg:text-2xl', className);
+  return cn(
+    'text-2xl font-medium tracking-tight text-balance text-fd-foreground lg:text-3xl',
+    className,
+  );
+}
+
+export function prose(className?: string) {
+  return cn('max-w-[58ch] text-base text-pretty text-fd-muted-foreground lg:text-lg', className);
 }

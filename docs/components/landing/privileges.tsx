@@ -14,7 +14,7 @@ const resources: { name: string; privileges: string[] }[] = [
 
 export function WritePrivileges() {
   return (
-    <dl className="@container overflow-hidden rounded-xl border bg-fd-popover text-fd-popover-foreground">
+    <dl className="@container overflow-hidden rounded-xl border bg-fd-popover text-sm text-fd-popover-foreground">
       {resources.map((resource) => (
         <div
           key={resource.name}
