@@ -67,7 +67,7 @@ klens connects to Kafka as one Kafka user, set by `sasl` or a TLS client certifi
 | --- | --- | --- | --- |
 | Sizes and log dirs | `Describe` | `Cluster` | Sizes stay blank. The rest of klens works. |
 | ACLs | `Describe` | `Cluster` | The page says that klens's Kafka user needs `DESCRIBE` on the cluster. |
-| SCRAM users | `Describe` | `Cluster` | The page says that klens's Kafka user needs `DESCRIBE` on the cluster. Kafka 2.7 or later is also required. |
+| SCRAM users | `Describe` | `Cluster` | The page says that klens's Kafka user needs `DESCRIBE` on the cluster. |
 | Quotas | `DescribeConfigs` | `Cluster` | The page says that klens's Kafka user needs `DESCRIBE_CONFIGS` on the cluster. |
 | SCRAM credential changes | `Alter` | `Cluster` | Kafka refuses the change. |
 
