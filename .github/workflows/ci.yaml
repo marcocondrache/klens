@@ -158,6 +158,11 @@ jobs:
     if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.9 is the oldest Kafka that krafka supports, and 4.1 is the default in e2e/src/kafka.rs.
+        kafka: ["3.9.0", "4.1.0"]
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -173,6 +178,8 @@ jobs:
       - name: Install nextest
         uses: taiki-e/install-action@9252097d36d2d3618ad98f5d873696a962b6897c # nextest
       - name: Run end-to-end tests against Kafka in Docker
+        env:
+          KAFKA_IMAGE_TAG: ${{ matrix.kafka }}
         run: cargo nextest run -p e2e --locked
 
   docs:
