@@ -31,9 +31,9 @@ const writeTools: { name: string; needs: Privilege }[] = [
 const CATALOG_TOOLS = 9;
 const TOTAL_TOOLS = CATALOG_TOOLS + readTools.length + writeTools.length;
 
-const keyColor = 'text-[#22863a] dark:text-[#85e89d]';
+const keyColor = 'text-[#116329] dark:text-[#85e89d]';
 const valueColor = 'text-[#032f62] dark:text-[#9ecbff]';
-const commentColor = 'text-[#6a737d]';
+const commentColor = 'text-[#59636e] dark:text-[#8b949e]';
 
 export function McpCeiling() {
   const [granted, setGranted] = useState<ReadonlySet<Privilege>>(
@@ -165,7 +165,7 @@ function ToolRow({ name, needs, served }: { name: string; needs: Privilege; serv
           'truncate font-mono transition-colors',
           served
             ? 'text-fd-foreground'
-            : 'text-fd-muted-foreground/70 line-through decoration-fd-muted-foreground/40',
+            : 'text-fd-muted-foreground line-through decoration-fd-muted-foreground/40',
         )}
       >
         {name}

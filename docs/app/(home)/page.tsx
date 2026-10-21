@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { ArrowRightIcon } from 'lucide-react';
-import { ServerCodeBlock } from 'fumadocs-ui/components/codeblock.rsc';
+import { ServerCodeBlock, type ServerCodeBlockProps } from 'fumadocs-ui/components/codeblock.rsc';
 import { cn } from '@/lib/cn';
 import { source } from '@/lib/source';
 import { getPageImageUrl, repoUrl } from '@/lib/shared';
@@ -42,6 +42,12 @@ export function generateMetadata(): Metadata {
     openGraph: index ? { images: getPageImageUrl(index).url } : undefined,
   };
 }
+
+// The stock GitHub themes leave these tokens below 4.5:1 against the code block background.
+const readableTokens = {
+  'github-light': { '#d73a49': '#cf222e', '#22863a': '#116329', '#6a737d': '#59636e' },
+  'github-dark': { '#6a737d': '#8b949e' },
+};
 
 const runCommand = `docker run --rm -p 8080:8080 \\
   -v "$PWD/config.yaml:/config.yaml:ro" \\
@@ -178,7 +184,7 @@ export default function Page() {
                 klens changes nothing on a cluster until you mark it writable. With sign-in and
                 roles, only the people who hold the privilege for a change can make it.
               </FeatureText>
-              <ServerCodeBlock
+              <CodeBlock
                 lang="yaml"
                 codeblock={{ title: 'config.yaml', className: 'my-0 mt-auto' }}
                 code={`clusters:
@@ -234,7 +240,7 @@ export default function Page() {
           <Scenery scene="night" position="70% 30%" className="px-3 py-8 text-sm sm:px-6 lg:py-16">
             <div className="mx-auto flex w-full max-w-[640px] flex-col gap-3 rounded-2xl border bg-fd-card/85 p-3 backdrop-blur-md">
               <AgentChat />
-              <ServerCodeBlock
+              <CodeBlock
                 lang="bash"
                 code="claude mcp add --transport http klens http://localhost:8090/mcp"
                 codeblock={{ title: 'Terminal', className: 'my-0' }}
@@ -272,7 +278,7 @@ function TryIt() {
           broker in <code className="font-mono text-[0.9em]">config.yaml</code>, then start the
           image.
         </p>
-        <ServerCodeBlock
+        <CodeBlock
           lang="yaml"
           code={configYaml}
           codeblock={{ title: 'config.yaml', className: 'my-0 text-sm' }}
@@ -345,6 +351,10 @@ function Closing() {
       <Lens className="absolute -bottom-[250px] left-1/2 -z-1 size-[440px] -translate-x-1/2" />
     </section>
   );
+}
+
+function CodeBlock(props: ServerCodeBlockProps) {
+  return <ServerCodeBlock colorReplacements={readableTokens} {...props} />;
 }
 
 function SectionHeader({ title, children }: { title: string; children?: ReactNode }) {
