@@ -55,6 +55,12 @@ const sections: { icon: LucideIcon; title: string; description: string; url: str
 export default function Layout({ children }: LayoutProps<'/'>) {
   return (
     <>
+      <a
+        href="#content"
+        className="sr-only rounded-md bg-fd-background px-4 py-2 text-sm font-medium shadow-lg focus:not-sr-only focus:fixed focus:start-4 focus:top-4 focus:z-50 focus-visible:outline-2 focus-visible:outline-brand"
+      >
+        Skip to main content
+      </a>
       <HomeLayout
         {...baseOptions()}
         links={[
@@ -99,7 +105,9 @@ export default function Layout({ children }: LayoutProps<'/'>) {
         ]}
         className="dark:bg-neutral-950 dark:[--color-fd-background:var(--color-neutral-950)]"
       >
-        {children}
+        <div id="content" tabIndex={-1} className="outline-none">
+          {children}
+        </div>
       </HomeLayout>
       <Footer />
     </>

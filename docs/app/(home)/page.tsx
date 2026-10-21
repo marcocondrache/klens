@@ -2,10 +2,10 @@ import type { ReactNode } from 'react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { ArrowRightIcon } from 'lucide-react';
-import { ServerCodeBlock } from 'fumadocs-ui/components/codeblock.rsc';
+import { ServerCodeBlock, type ServerCodeBlockProps } from 'fumadocs-ui/components/codeblock.rsc';
 import { cn } from '@/lib/cn';
 import { source } from '@/lib/source';
-import { getPageImageUrl, repoUrl } from '@/lib/shared';
+import { appName, getPageImageUrl, repoUrl, siteUrl } from '@/lib/shared';
 import { AccessMatrix } from '@/components/landing/access';
 import { AgentChat } from '@/components/landing/agents';
 import { McpCeiling } from '@/components/landing/ceiling';
@@ -39,9 +39,45 @@ export function generateMetadata(): Metadata {
   return {
     title: 'klens, a web UI and MCP server for Kafka',
     description,
-    openGraph: index ? { images: getPageImageUrl(index).url } : undefined,
+    alternates: { canonical: '/' },
+    openGraph: {
+      type: 'website',
+      url: '/',
+      siteName: appName,
+      images: index
+        ? {
+            url: getPageImageUrl(index).url,
+            width: 1200,
+            height: 630,
+            alt: `${index.data.title}: ${index.data.description}`,
+          }
+        : undefined,
+    },
   };
 }
+
+const structuredData = {
+  '@context': 'https://schema.org',
+  '@graph': [
+    { '@type': 'WebSite', '@id': `${siteUrl}/#website`, url: siteUrl, name: appName },
+    {
+      '@type': 'SoftwareApplication',
+      '@id': `${siteUrl}/#software`,
+      name: appName,
+      description,
+      url: siteUrl,
+      applicationCategory: 'DeveloperApplication',
+      license: 'https://opensource.org/license/mit',
+      sameAs: repoUrl,
+    },
+  ],
+};
+
+// The stock GitHub themes leave these tokens below 4.5:1 against the code block background.
+const readableTokens = {
+  'github-light': { '#d73a49': '#cf222e', '#22863a': '#116329', '#6a737d': '#59636e' },
+  'github-dark': { '#6a737d': '#8b949e' },
+};
 
 const runCommand = `docker run --rm -p 8080:8080 \\
   -v "$PWD/config.yaml:/config.yaml:ro" \\
@@ -69,6 +105,10 @@ const startupLog: LogLine[] = [
 export default function Page() {
   return (
     <div className="pt-4 pb-6 md:pb-12">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
+      />
       <Hero />
 
       <div className="mx-auto mt-16 flex w-full max-w-[1400px] flex-col gap-24 px-6 md:px-12 lg:mt-24 lg:gap-28">
@@ -178,7 +218,7 @@ export default function Page() {
                 klens changes nothing on a cluster until you mark it writable. With sign-in and
                 roles, only the people who hold the privilege for a change can make it.
               </FeatureText>
-              <ServerCodeBlock
+              <CodeBlock
                 lang="yaml"
                 codeblock={{ title: 'config.yaml', className: 'my-0 mt-auto' }}
                 code={`clusters:
@@ -234,7 +274,7 @@ export default function Page() {
           <Scenery scene="night" position="70% 30%" className="px-3 py-8 text-sm sm:px-6 lg:py-16">
             <div className="mx-auto flex w-full max-w-[640px] flex-col gap-3 rounded-2xl border bg-fd-card/85 p-3 backdrop-blur-md">
               <AgentChat />
-              <ServerCodeBlock
+              <CodeBlock
                 lang="bash"
                 code="claude mcp add --transport http klens http://localhost:8090/mcp"
                 codeblock={{ title: 'Terminal', className: 'my-0' }}
@@ -272,7 +312,7 @@ function TryIt() {
           broker in <code className="font-mono text-[0.9em]">config.yaml</code>, then start the
           image.
         </p>
-        <ServerCodeBlock
+        <CodeBlock
           lang="yaml"
           code={configYaml}
           codeblock={{ title: 'config.yaml', className: 'my-0 text-sm' }}
@@ -345,6 +385,10 @@ function Closing() {
       <Lens className="absolute -bottom-[250px] left-1/2 -z-1 size-[440px] -translate-x-1/2" />
     </section>
   );
+}
+
+function CodeBlock(props: ServerCodeBlockProps) {
+  return <ServerCodeBlock colorReplacements={readableTokens} {...props} />;
 }
 
 function SectionHeader({ title, children }: { title: string; children?: ReactNode }) {
