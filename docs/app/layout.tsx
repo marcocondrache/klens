@@ -1,10 +1,19 @@
 import { Geist, Geist_Mono } from 'next/font/google';
 import { Provider } from '@/components/provider';
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
+import { siteUrl } from '@/lib/shared';
 import './global.css';
 
 export const metadata: Metadata = {
-  metadataBase: new URL('https://klens.dev'),
+  metadataBase: new URL(siteUrl),
+};
+
+export const viewport: Viewport = {
+  colorScheme: 'light dark',
+  themeColor: [
+    { media: '(prefers-color-scheme: light)', color: '#f5f5f5' },
+    { media: '(prefers-color-scheme: dark)', color: '#0a0a0a' },
+  ],
 };
 
 const geist = Geist({
