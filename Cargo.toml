@@ -72,7 +72,7 @@ tower-http = { version = "0.7", features = [
     "sensitive-headers",
     "trace",
 ] }
-tower-sessions = { version = "0.14", default-features = false, features = ["signed"] }
+tower-sessions = { version = "0.15", default-features = false, features = ["signed"] }
 tracing = "0.1"
 tracing-appender = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
