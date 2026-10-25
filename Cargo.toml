@@ -39,7 +39,7 @@ hmac = "0.13"
 indexmap = { version = "2", features = ["serde"] }
 itertools = "0.15"
 jiff = { version = "0.2", default-features = false, features = ["serde", "std"] }
-krafka = "0.27.1"
+krafka = "0.28.0"
 memory-serve = { version = "2.4", optional = true }
 moka = { version = "0.12", features = ["future", "sync"] }
 openidconnect = "4.0.1"
@@ -84,7 +84,7 @@ zeroize = "1"
 memory-serve = { version = "2.4", optional = true }
 
 [dev-dependencies]
-krafka = { version = "0.27.1", features = ["test-broker"] }
+krafka = { version = "0.28.0", features = ["test-broker"] }
 percent-encoding = "2.3"
 tempfile = "3"
 tokio = { version = "1", features = ["test-util"] }
