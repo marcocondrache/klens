@@ -4,4 +4,8 @@ ignore = [
     # openidconnect 4.0.1 depends on rsa to verify ID-token signatures.
     # klens does not perform RSA private-key operations.
     "RUSTSEC-2023-0071",
+    # RUSTSEC-2026-0387 has no patched crypto-bigint 0.5 release.
+    # openidconnect 4.0.1 depends on it through p256 and p384 to verify ID-token signatures.
+    # Verification handles only public keys and signatures, so timing reveals no secret.
+    "RUSTSEC-2026-0387",
 ]
