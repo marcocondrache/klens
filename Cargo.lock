@@ -2111,9 +2111,9 @@ dependencies = [
 
 [[package]]
 name = "krafka"
-version = "0.28.0"
+version = "0.28.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "88e656c75da6c70bf0f52c48b291b6b95b011d0776c3177ef77188ba58f3c858"
+checksum = "ef88560550d202c0865db027ce71e6e5275b504b515327ccaa590916edc84336"
 dependencies = [
  "ahash",
  "arc-swap",
@@ -2490,7 +2490,7 @@ version = "5.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "51e219e79014df21a225b1860a479e2dcd7cbd9130f4defd4bd0e191ea31d67d"
 dependencies = [
- "base64 0.22.1",
+ "base64 0.21.7",
  "chrono",
  "getrandom 0.2.17",
  "http",
