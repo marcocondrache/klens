@@ -11,7 +11,7 @@
   "dependencies": {
     "@paper-design/shaders-react": "0.0.82",
     "cn": "^0.5.0",
-    "fumadocs-core": "16.17.8",
+    "fumadocs-core": "16.17.9",
     "fumadocs-mdx": "15.4.10",
     "fumadocs-ui": "npm:@fumadocs/base-ui@16.17.8",
     "lucide-react": "^1.50.0",
