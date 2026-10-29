@@ -49,7 +49,7 @@ prost-reflect = { version = "0.16", features = ["serde"] }
 protox = "0.10"
 rand = "0.10"
 regex = "1.13"
-rmcp = { version = "=3.7.0", default-features = false, features = [
+rmcp = { version = "=3.8.0", default-features = false, features = [
     "macros",
     "server",
     "transport-streamable-http-server",
