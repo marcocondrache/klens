@@ -271,8 +271,16 @@ fn offset_fetch_partitions<'a>(
         return None;
     }
 
+    // A cooperative rebalance briefly unassigns partitions, so keep the ones
+    // already fetched on a topic the group still consumes. A topic it dropped
+    // would otherwise report lag until Kafka expires its commits.
     if let Some(offsets) = previous.and_then(|table| table.get(id)) {
-        partitions.extend(offsets.partitions());
+        let consumed: HashSet<&str> = partitions.iter().map(|(topic, _)| *topic).collect();
+        partitions.extend(
+            offsets
+                .partitions()
+                .filter(|(topic, _)| consumed.contains(topic)),
+        );
     }
 
     partitions.sort_unstable();
