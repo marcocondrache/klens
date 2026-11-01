@@ -8,6 +8,12 @@ publish = false
 members = ["e2e", "xtask"]
 default-members = ["."]
 
+[workspace.lints.clippy]
+mod_module_files = "deny"
+
+[lints]
+workspace = true
+
 [features]
 typescript = []
 ui = ["dep:memory-serve"]

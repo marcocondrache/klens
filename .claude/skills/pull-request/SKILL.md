@@ -1,3 +1,8 @@
+---
+name: pull-request
+description: Use when opening, titling, describing, stacking, or editing a pull request, such as "open a PR", "write the PR description", "split this into a stack", or "rebase before the PR".
+---
+
 # Pull requests
 
 ## Before opening
@@ -34,6 +39,6 @@ Write in short declarative sentences. Keep articles. Use one word for each actio
 
 ## Opening
 
-Use `gh` to create, edit, view, and merge. Open every PR ready for review, never as a draft. Run `gh pr view <number>` before you state a PR's status.
+Use `gh` to create, edit, view, and merge. Run `gh pr view <number>` before you state a PR's status.
 
 Opening a PR does not start a watch on it. Post the URL as `https://github.com/<owner>/<repo>/pull/<number>` and continue with the remaining work. Check CI and review threads only when asked.

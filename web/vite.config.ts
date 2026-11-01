@@ -25,6 +25,10 @@ export default defineConfig({
     ignorePatterns: readonlyPatterns,
     plugins: ["react", "typescript", "oxc"],
     jsPlugins: ["@shadcn/lint"],
+    rules: {
+      "typescript/no-explicit-any": "error",
+      "typescript/no-non-null-assertion": "error",
+    },
     options: {
       typeAware: true,
       typeCheck: true,
