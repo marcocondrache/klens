@@ -5,7 +5,7 @@ use std::time::Duration;
 use tokio::time::{Instant, advance};
 use tracing::Level;
 
-use crate::kafka::group::GroupState;
+use crate::kafka::group::{GroupState, MemberAssignment};
 use crate::kafka::store::{Change, OffsetTable};
 use crate::testing::{Api, BusProbe, FakeCluster, IDLE, LogCapture, Rig, group};
 
@@ -271,6 +271,47 @@ async fn an_active_group_fetches_only_what_it_consumes() {
         rig.store.group_row("order-processor").unwrap().topic_names,
         ["orders.created"],
         "a commit left behind on a topic the group no longer consumes is not fetched"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_group_that_drops_a_topic_stops_reporting_lag_on_it() {
+    let commits = [
+        ("orders.created", 0, 2),
+        ("orders.created", 1, 5),
+        ("payments.settled", 0, 3),
+    ];
+    let mut both = group("order-processor", "orders.created", vec![0, 1]).with_committed(&commits);
+    both.members[0].assignments.push(MemberAssignment {
+        topic: "payments.settled".into(),
+        partitions: vec![0],
+    });
+    let rig = Rig::new(FakeCluster::local().with_groups([both]));
+    let mut topology = rig.topology();
+    let mut lane = rig.offsets();
+    rig.poll(&mut topology).await;
+    rig.sweep(&mut lane).await;
+    assert_eq!(
+        rig.store.group_row("order-processor").unwrap().topic_names,
+        ["orders.created", "payments.settled"]
+    );
+
+    rig.cluster
+        .put_group(group("order-processor", "orders.created", vec![0]).with_committed(&commits));
+    rig.poll(&mut topology).await;
+    advance(Duration::from_secs(30)).await;
+    rig.sweep(&mut lane).await;
+
+    assert_eq!(
+        rig.store.group_row("order-processor").unwrap().topic_names,
+        ["orders.created"],
+        "the dropped topic is not fetched again"
+    );
+    let offsets = rig.store.offsets.load().unwrap();
+    assert_eq!(
+        committed(&offsets, "order-processor"),
+        [2, 5],
+        "a partition a rebalance unassigned on a consumed topic keeps its offset"
     );
 }
 
