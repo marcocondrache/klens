@@ -42,12 +42,12 @@
     "@vitejs/plugin-react": "^6.1.0",
     "babel-plugin-react-compiler": "^1.0.0",
     "typescript": "~7.0.0",
-    "vite": "npm:@voidzero-dev/vite-plus-core@1.4.0",
-    "vite-plus": "1.4.0"
+    "vite": "npm:@voidzero-dev/vite-plus-core@1.5.0",
+    "vite-plus": "1.5.0"
   },
   "overrides": {
     "minimatch": "^11.0.3",
-    "vite": "npm:@voidzero-dev/vite-plus-core@1.4.0"
+    "vite": "npm:@voidzero-dev/vite-plus-core@1.5.0"
   },
   "devEngines": {
     "packageManager": {
