@@ -524,7 +524,10 @@ async fn topic_describe_keeps_the_most_lagging_groups_that_fit() {
     let mut groups: Vec<_> = (0..400)
         .map(|id| group(&format!("consumer-{id:03}"), "orders.created", vec![0]))
         .collect();
-    groups.push(group("zz-behind", "orders.created", vec![0, 1]));
+    groups.push(
+        group("zz-behind", "orders.created", vec![0, 1])
+            .with_committed(&[("orders.created", 0, 0), ("orders.created", 1, 0)]),
+    );
     let app = TestApp::over(FakeCluster::local().with_groups(groups)).await;
 
     let result = call(
@@ -536,7 +539,7 @@ async fn topic_describe_keeps_the_most_lagging_groups_that_fit() {
 
     let described = structured(&result);
     let ids = names(&described, "groups", "id");
-    assert_eq!(ids[..2], ["zz-behind", "consumer-000"]);
+    assert_eq!(ids[..2], ["zz-behind", "order-processor"]);
     assert_eq!(described["groups"][0]["lagOnTopic"], 16);
     assert_eq!(described["partitions"].as_array().map(Vec::len), Some(2));
     assert_eq!(

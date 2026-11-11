@@ -268,7 +268,8 @@ async fn a_member_lag_is_null_while_one_of_its_partitions_has_no_end_offset() {
 
 #[tokio::test]
 async fn group_describe_keeps_the_most_lagging_members_that_fit() {
-    let mut billing = group("billing", "orders.created", vec![0]);
+    let mut billing = group("billing", "orders.created", vec![0])
+        .with_committed(&[("orders.created", 0, 0), ("orders.created", 1, 0)]);
     let template = billing.members[0].clone();
     billing.members = (0..400)
         .map(|id| {

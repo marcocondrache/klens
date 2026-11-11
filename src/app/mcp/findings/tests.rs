@@ -225,7 +225,12 @@ fn a_member_lag_sums_the_partitions_it_holds() {
     let members = vec![member("a", vec![0, 1]), member("b", vec![2])];
     let topology = on_orders(GroupState::Stable, members, 4);
     let (id, info) = topology.groups.iter().next().expect("the group");
-    let committed = offsets(&[("orders", 0, 7), ("orders", 1, 5), ("orders", 3, 1)]);
+    let committed = offsets(&[
+        ("orders", 0, 7),
+        ("orders", 1, 5),
+        ("orders", 2, 1),
+        ("orders", 3, 1),
+    ]);
     let marks = watermarks(&[
         ("orders", 0, 0, 10),
         ("orders", 1, 0, 10),
@@ -239,4 +244,17 @@ fn a_member_lag_sums_the_partitions_it_holds() {
         [Some(3 + 5), None],
         "b's partition has no watermark, and no member holds partition 3"
     );
+}
+
+#[test]
+fn a_partition_a_member_never_committed_on_adds_nothing_to_its_lag() {
+    let members = vec![member("a", vec![0, 1])];
+    let topology = on_orders(GroupState::Stable, members, 2);
+    let (id, info) = topology.groups.iter().next().expect("the group");
+    let committed = offsets(&[("orders", 0, 7)]);
+    let marks = watermarks(&[("orders", 0, 0, 10), ("orders", 1, 0, 10)]);
+
+    let detail = GroupDetail::project(id, info, Some(&committed), Some(&marks));
+
+    assert_eq!(member_lags(&detail), [Some(3)]);
 }

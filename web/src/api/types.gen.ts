@@ -105,7 +105,16 @@ export type MemberAssignment = { topic: string, partitions: Array<number>, };
 
 export type GroupMember = { id: string, clientId: string, host: string, assignments: Array<MemberAssignment>, };
 
-export type GroupOffset = { topic: string, partition: number, currentOffset: number | null, endOffset: number | null, lag: number | null, memberId: string | null, };
+export type GroupOffset = { topic: string, partition: number, 
+/**
+ * Null when the group has no committed offset on the partition, and
+ * until the group's committed offsets are first fetched.
+ */
+currentOffset: number | null, endOffset: number | null, 
+/**
+ * Null without a committed offset or a watermark to measure it against.
+ */
+lag: number | null, memberId: string | null, };
 
 export type GroupRow = { id: string, state: GroupState, memberCount: number, topicNames: Array<string>, 
 /**

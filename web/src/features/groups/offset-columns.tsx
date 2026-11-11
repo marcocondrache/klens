@@ -16,12 +16,23 @@ function OffsetValue({ value, label }: { value: number | null; label: string }) 
   return <span className="text-muted-foreground">{formatNumber(value)}</span>;
 }
 
+function NoCommit() {
+  return (
+    <span className="text-muted-foreground/60" title="The group has not committed an offset here">
+      —
+    </span>
+  );
+}
+
 export function offsetColumns({
   cluster,
+  fetched,
   maxLag,
   memberLabels,
 }: {
   cluster: string;
+  /** Whether the group's committed offsets are read, so a missing one means no commit. */
+  fetched: boolean;
   maxLag: number;
   memberLabels: ReadonlyMap<string, string>;
 }) {
@@ -51,9 +62,12 @@ export function offsetColumns({
       header: "Committed",
       size: 144,
       meta: { align: "right" },
-      cell: ({ row }) => (
-        <OffsetValue value={row.original.currentOffset} label="Fetching committed offsets" />
-      ),
+      cell: ({ row }) =>
+        fetched && row.original.currentOffset === null ? (
+          <NoCommit />
+        ) : (
+          <OffsetValue value={row.original.currentOffset} label="Fetching committed offsets" />
+        ),
     }),
     columnHelper.accessor((offset) => offset.endOffset ?? -1, {
       id: "end",
@@ -70,6 +84,9 @@ export function offsetColumns({
       size: 192,
       meta: { align: "right" },
       cell: ({ getValue, row }) => {
+        if (fetched && row.original.currentOffset === null) {
+          return <NoCommit />;
+        }
         if (row.original.lag === null) {
           return <PendingValue label="Lag is not known yet" className="ml-auto block" />;
         }
