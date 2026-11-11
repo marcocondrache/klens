@@ -76,8 +76,11 @@ impl From<domain::GroupMember> for GroupMember {
 pub struct GroupOffset {
     pub topic: String,
     pub partition: i32,
+    /// Null when the group has no committed offset on the partition, and
+    /// until the group's committed offsets are first fetched.
     pub current_offset: Option<i64>,
     pub end_offset: Option<i64>,
+    /// Null without a committed offset or a watermark to measure it against.
     pub lag: Option<i64>,
     pub member_id: Option<String>,
 }

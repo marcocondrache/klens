@@ -94,7 +94,8 @@ export function GroupPage() {
     ...members.flatMap((member) => member.assignments.map((assignment) => assignment.topic)),
   ]).size;
 
-  const columns = offsetColumns({ cluster, maxLag, memberLabels });
+  const fetched = group?.totalLag != null;
+  const columns = offsetColumns({ cluster, fetched, maxLag, memberLabels });
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-5">

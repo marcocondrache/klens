@@ -244,7 +244,8 @@ pub struct GroupLag {
     pub offsets: Vec<GroupOffset>,
     /// `None` until the offset lane has read the group's committed offsets.
     pub total: Option<i64>,
-    /// Whether `total` counts every partition, which takes a high watermark for each.
+    /// Whether `total` counts every committed partition, which takes a high
+    /// watermark for each.
     pub complete: bool,
 }
 
@@ -274,7 +275,10 @@ impl GroupLag {
                 }
             })
             .collect();
-        let (total, complete) = lag_totals(offsets.is_some(), rows.iter().map(|row| row.lag));
+        let (total, complete) = lag_totals(
+            offsets.is_some(),
+            rows.iter().map(|row| (row.current_offset, row.end_offset)),
+        );
         Self {
             offsets: rows,
             total,
@@ -301,12 +305,11 @@ fn positions<'a>(
         );
     }
 
-    let uncommitted = offsets.is_some().then_some(0);
     for key in group
         .assigned_partition_refs()
         .filter(|(name, _)| wanted(name))
     {
-        positions.entry(key).or_insert(uncommitted);
+        positions.entry(key).or_insert(None);
     }
     positions
 }
@@ -319,20 +322,28 @@ fn positions_lag(
     lag_totals(
         fetched,
         positions.iter().map(|(&(topic, partition), &current)| {
-            lag_of(current, high_watermark(watermarks, topic, partition))
+            (current, high_watermark(watermarks, topic, partition))
         }),
     )
 }
 
-fn lag_totals(fetched: bool, lags: impl Iterator<Item = Option<i64>>) -> (Option<i64>, bool) {
+fn lag_totals(
+    fetched: bool,
+    positions: impl Iterator<Item = (Option<i64>, Option<i64>)>,
+) -> (Option<i64>, bool) {
     let mut total = 0;
     let mut complete = true;
-    for lag in lags {
-        match lag {
+
+    for (committed, end) in positions {
+        match lag_of(committed, end) {
             Some(lag) => total += lag,
+            // Where the group would start on a partition it never committed
+            // depends on its reset policy, so that partition has no lag to count.
+            None if fetched && committed.is_none() => {}
             None => complete = false,
         }
     }
+
     (fetched.then_some(total), complete)
 }
 
@@ -675,7 +686,7 @@ mod tests {
 
         assert_eq!(
             row.total_lag,
-            Some(50),
+            Some(0),
             "partition 0 clamps to 0, partition 1 never committed"
         );
     }
@@ -700,35 +711,31 @@ mod tests {
     }
 
     #[test]
-    fn an_uncommitted_partition_with_no_watermark_flags_the_total_as_incomplete() {
+    fn an_assigned_partition_that_never_committed_adds_no_lag() {
         let topology = topology();
         let (id, group) = topology.groups.iter().next().unwrap();
+        let committed = offsets(&[("orders", 0, 90)]);
 
-        let row = GroupRow::project(
-            id,
-            group,
-            Some(&offsets(&[("orders", 0, 90)])),
-            Some(&watermarks(&[("orders", 0, 20, 100)])),
-        );
+        let detail = GroupDetail::project(id, group, Some(&committed), Some(&marks()));
 
-        assert_eq!(row.total_lag, Some(10));
-        assert!(
-            !row.lag_complete,
-            "partition 1 has neither a commit nor a watermark"
-        );
+        assert_eq!(detail.total_lag, Some(10), "partition 0 alone");
+        assert!(detail.lag_complete);
+        assert_eq!(detail.offsets.len(), 2);
+        assert_eq!(detail.offsets[1].current_offset, None);
+        assert_eq!(detail.offsets[1].end_offset, Some(50));
+        assert_eq!(detail.offsets[1].lag, None);
+        assert_eq!(detail.offsets[1].member_id.as_deref(), Some("billing-m1"));
     }
 
     #[test]
-    fn an_assigned_partition_that_never_committed_lags_by_the_whole_log() {
+    fn assigned_partitions_are_incomplete_until_the_offsets_are_fetched() {
         let topology = topology();
         let (id, group) = topology.groups.iter().next().unwrap();
 
-        let detail = GroupDetail::project(id, group, Some(&offsets(&[])), Some(&marks()));
+        let row = GroupRow::project(id, group, None, Some(&marks()));
 
-        assert_eq!(detail.total_lag, Some(150));
-        assert_eq!(detail.offsets.len(), 2);
-        assert_eq!(detail.offsets[0].current_offset, Some(0));
-        assert_eq!(detail.offsets[0].member_id.as_deref(), Some("billing-m1"));
+        assert_eq!(row.total_lag, None);
+        assert!(!row.lag_complete);
     }
 
     #[test]
@@ -745,9 +752,9 @@ mod tests {
         let (id, group) = topology.groups.iter().next().unwrap();
         let marks = watermarks(&[("orders", 0, 0, 10), ("payments", 0, 0, 900)]);
 
-        let fetched = offsets(&[]);
+        let fetched = offsets(&[("orders", 0, 4), ("payments", 0, 100)]);
         let row = TopicGroupRow::project(id, "orders", group, Some(&fetched), Some(&marks));
-        assert_eq!(row.lag_on_topic, Some(10));
+        assert_eq!(row.lag_on_topic, Some(6));
         assert_eq!(row.member_count, 1);
     }
 

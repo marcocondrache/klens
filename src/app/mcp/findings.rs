@@ -150,8 +150,13 @@ impl Finding {
 pub fn member_lags(group: &GroupDetail) -> Vec<Option<i64>> {
     let mut held: HashMap<&str, Option<i64>> = HashMap::new();
     for offset in &group.offsets {
-        if let Some(member) = offset.member_id.as_deref() {
-            let lag = held.entry(member).or_insert(Some(0));
+        let Some(member) = offset.member_id.as_deref() else {
+            continue;
+        };
+        let lag = held.entry(member).or_insert(Some(0));
+
+        // A partition the member never committed on has no lag to hold.
+        if offset.current_offset.is_some() {
             *lag = lag.zip(offset.lag).map(|(sum, lag)| sum + lag);
         }
     }
