@@ -663,10 +663,7 @@ impl ClusterSession for KafkaClient {
     }
 
     async fn create_acls(&self, acls: &[Acl]) -> Result<(), KafkaError> {
-        let bindings = acls
-            .iter()
-            .map(Acl::to_krafka)
-            .collect::<Result<Vec<_>, _>>()?;
+        let bindings = acls.iter().map(Acl::to_krafka).collect();
         self.transport()
             .await?
             .admin
@@ -681,7 +678,7 @@ impl ClusterSession for KafkaClient {
             .transport()
             .await?
             .admin
-            .delete_acls(vec![acl.to_krafka_filter()?], DeleteAclsOptions::default())
+            .delete_acls(vec![acl.to_krafka_filter()], DeleteAclsOptions::default())
             .await?;
         for (_, deleted) in deleted {
             if let Some((_, error)) = refused(deleted)?.failed.into_iter().next() {
