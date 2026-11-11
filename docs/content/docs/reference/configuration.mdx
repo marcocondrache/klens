@@ -144,10 +144,10 @@ The `auth` block turns on sign-in with OpenID Connect.
 | `oidc.client_id` | String | Required | The OIDC client ID. |
 | `oidc.client_secret` | Secret | Required | The OIDC client secret. |
 | `oidc.redirect_uri` | URL | Required | The callback URL, `<klens URL>/api/auth/callback`. Session cookies are `Secure` when it uses `https`. |
-| `oidc.scopes` | List of strings | `[openid, email, profile]` | The scopes klens requests. |
+| `oidc.scopes` | List of strings | `[openid, email, profile]` | The scopes klens requests. Add `offline_access` when the provider needs it to issue a refresh token. |
 | `oidc.groups_claim` | String | `groups` | The ID token claim that lists the groups of a user. |
 | `session.login_timeout` | Duration | `10m` | How long a sign-in may stay at the provider. |
-| `session.max_age` | Duration | `12h` | The longest a session lasts. A session also ends when its ID token expires. |
+| `session.max_age` | Duration | `12h` | The longest a session lasts. Without a refresh token, a session also ends when its ID token expires. |
 | `roles` | Map of [roles](#roles) | None | The roles, by name. Without roles, every signed-in user holds every privilege. |
 
 ### Roles

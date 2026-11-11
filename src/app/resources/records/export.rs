@@ -46,7 +46,7 @@ struct Lines {
 impl Lines {
     fn into_stream(self) -> impl Stream<Item = Result<Bytes, ApiError>> {
         stream::try_unfold(self, |mut state| async move {
-            if let Some(error) = denied(&state.guard, &state.cluster) {
+            if let Some(error) = denied(&state.guard, &state.cluster).await {
                 return Err(error);
             }
             let Some(records) = state.export.next().await? else {

@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -9,7 +10,7 @@ use axum::http::{HeaderMap, HeaderValue, Request, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::{Json, Router};
 use jiff::Timestamp;
-use openidconnect::{CsrfToken, Nonce, PkceCodeChallenge, PkceCodeVerifier};
+use openidconnect::{CsrfToken, Nonce, PkceCodeChallenge, PkceCodeVerifier, RefreshToken};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tower::ServiceExt as _;
@@ -20,6 +21,7 @@ use super::access::{AccessPolicy, ClusterScope, EffectiveAccess, Grant, Privileg
 use super::backend::AuthBackend;
 use super::login::LoginCookie;
 use super::oidc::{OidcError, OidcFlow};
+use super::sign_in::{Renewal, SignIn};
 use super::store::ExpiringStore;
 use super::{AuthSession, AuthState, Holder, SessionGuard, SessionUser, session_layer};
 use crate::AppState;
@@ -68,6 +70,61 @@ impl SessionGuard {
 #[derive(Clone, Default)]
 pub struct FakeOidc {
     pub groups: Vec<String>,
+    /// Set, a sign-in comes with a refresh token and an ID token that has
+    /// already expired, so the next request has to renew it.
+    pub refresh: Option<FakeRefresh>,
+}
+
+/// A provider that rotates its refresh tokens and takes each one once.
+#[derive(Clone, Default)]
+pub struct FakeRefresh {
+    /// The groups in a renewed ID token.
+    pub groups: Vec<String>,
+    /// How long a renewed ID token lasts. At zero every request renews.
+    pub id_token_ttl: i64,
+    pub fails: bool,
+    /// Set, a renewed ID token names this subject instead of the user's.
+    pub subject: Option<&'static str>,
+    pub(super) issued: Arc<AtomicU32>,
+}
+
+impl FakeRefresh {
+    pub fn renewals(&self) -> u32 {
+        self.issued.load(Ordering::SeqCst).saturating_sub(1)
+    }
+
+    fn sign_in(&self, user: SessionUser) -> SignIn {
+        let issued = self.issued.fetch_add(1, Ordering::SeqCst) + 1;
+        let renewal = Renewal {
+            refresh_token: RefreshToken::new(format!("refresh-{issued}")),
+            deadline: Timestamp::now().as_second() + 3600,
+        };
+        SignIn::new(user, Some(renewal))
+    }
+
+    fn takes(&self, refresh_token: &RefreshToken) -> bool {
+        let latest = format!("refresh-{}", self.issued.load(Ordering::SeqCst));
+        !self.fails && *refresh_token.secret() == latest
+    }
+}
+
+impl FakeOidc {
+    pub fn refreshing(refresh: &FakeRefresh) -> Self {
+        Self {
+            groups: Vec::new(),
+            refresh: Some(refresh.clone()),
+        }
+    }
+
+    fn user(&self, sub: &str, groups: &[String], ttl: i64) -> SessionUser {
+        SessionUser::new(
+            sub,
+            Some("user@example.com".into()),
+            Some("Test User".into()),
+            groups.to_vec(),
+            Timestamp::now().as_second() + ttl,
+        )
+    }
 }
 
 #[async_trait]
@@ -88,18 +145,30 @@ impl OidcFlow for FakeOidc {
         code: String,
         _pkce_verifier: PkceCodeVerifier,
         _nonce: Nonce,
-    ) -> Result<SessionUser, OidcError> {
+    ) -> Result<SignIn, OidcError> {
         if code != "test-code" {
             return Err(OidcError::Exchange("invalid authorization code".to_owned()));
         }
 
-        Ok(SessionUser::new(
-            "user-1",
-            Some("user@example.com".into()),
-            Some("Test User".into()),
-            self.groups.clone(),
-            Timestamp::now().as_second() + 3600,
-        ))
+        Ok(match &self.refresh {
+            Some(refresh) => refresh.sign_in(self.user("user-1", &self.groups, 0)),
+            None => SignIn::new(self.user("user-1", &self.groups, 3600), None),
+        })
+    }
+
+    async fn refresh(&self, user: &SessionUser, renewal: &Renewal) -> Result<SignIn, OidcError> {
+        let refresh = self
+            .refresh
+            .as_ref()
+            .filter(|refresh| refresh.takes(&renewal.refresh_token))
+            .ok_or_else(|| OidcError::Exchange("invalid refresh token".to_owned()))?;
+
+        // Lets every request that found the token expired reach the renewal.
+        tokio::task::yield_now().await;
+
+        let sub = refresh.subject.unwrap_or(&user.sub);
+        let renewed = self.user(sub, &refresh.groups, refresh.id_token_ttl);
+        Ok(refresh.sign_in(renewed.renewing(user)))
     }
 }
 
@@ -124,7 +193,11 @@ pub(super) async fn impersonate(
         impersonated.groups,
         impersonated.exp,
     );
-    state.auth.backend.remember(user.clone());
+    state
+        .auth
+        .backend
+        .remember(SignIn::new(user.clone(), None))
+        .await;
     if let Err(error) = auth_session.login(&user).await {
         tracing::error!(%error, "failed to impersonate");
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();

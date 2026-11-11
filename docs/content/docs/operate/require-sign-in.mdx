@@ -64,6 +64,18 @@ If the provider names the claim differently, set `oidc.groups_claim`. To request
 
 A session ends when its ID token expires or after `auth.session.max_age`, whichever comes first. A sign-in must return from the provider within `auth.session.login_timeout`.
 
+When the provider issues a refresh token at sign-in, klens uses it to get a new ID token each time the current one expires. The session then lasts until `max_age`, and the user is not sent back to the provider in between. Each renewal reads the user's groups again, so a change of groups at the provider takes effect when the current ID token expires.
+
+Some providers issue a refresh token only when klens requests the `offline_access` scope.
+
+```yaml title="config.yaml"
+auth:
+  oidc:
+    scopes: [openid, email, profile, offline_access]
+```
+
+A session ends early when the provider refuses the refresh token or answers without an ID token. klens renews a session only while the user has a page open, and it drops the refresh token when the user signs out.
+
 ```yaml title="config.yaml"
 auth:
   session:
@@ -71,7 +83,7 @@ auth:
     max_age: 12h
 ```
 
-Sessions live in process memory. A restart ends every session, and users sign in again.
+Sessions and refresh tokens live in process memory. A restart ends every session, and users sign in again.
 
 ## Troubleshoot sign-in
 

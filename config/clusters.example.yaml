@@ -112,11 +112,11 @@ clusters:
 #     client_id: klens
 #     client_secret: {env: OIDC_CLIENT_SECRET}
 #     redirect_uri: http://localhost:8080/api/auth/callback
-#     # scopes: [openid, email, profile]
+#     # scopes: [openid, email, profile]  # add offline_access if the provider needs it for refresh tokens
 #     # groups_claim: groups  # the ID token claim that lists a user's groups
 #   session:
 #     # login_timeout: 10m  # how long a login may take at the provider
-#     # max_age: 12h        # session cap, even if the ID token lasts longer
+#     # max_age: 12h        # session cap, even if the ID token or its refreshes last longer
 #   roles:
 #     admin:
 #       privileges:

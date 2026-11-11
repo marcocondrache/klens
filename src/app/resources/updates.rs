@@ -203,7 +203,7 @@ impl Stream {
                         return Some((Ok(Update::Resync.sse()), state));
                     }
                     Ok(change) => {
-                        if let Some(error) = state.denied() {
+                        if let Some(error) = state.denied().await {
                             state.done = true;
                             return Some((Ok(error.event()), state));
                         }
@@ -215,8 +215,8 @@ impl Stream {
         .boxed()
     }
 
-    fn denied(&self) -> Option<ApiError> {
-        let Some(access) = self.guard.revalidate() else {
+    async fn denied(&self) -> Option<ApiError> {
+        let Some(access) = self.guard.revalidate().await else {
             return Some(ApiError::SessionExpired);
         };
         access.cluster(&self.cluster).err().map(ApiError::from)
