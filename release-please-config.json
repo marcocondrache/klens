@@ -1,0 +1,23 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "include-component-in-tag": false,
+  "last-release-sha": "14219beb948a0d073d90b6cc77398ea412c1f4a5",
+  "packages": {
+    ".": {
+      "release-type": "simple",
+      "package-name": "klens",
+      "extra-files": [
+        {
+          "type": "toml",
+          "path": "Cargo.toml",
+          "jsonpath": "$.package.version"
+        },
+        {
+          "type": "toml",
+          "path": "Cargo.lock",
+          "jsonpath": "$.package[?(@.name.value === 'klens')].version"
+        }
+      ]
+    }
+  }
+}

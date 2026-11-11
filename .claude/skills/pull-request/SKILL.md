@@ -17,7 +17,7 @@ Prefer several narrow PRs to one large PR. A stack is a chain of base branches. 
 
 ## Title
 
-Use `type(scope): subject`. The squash commit takes this title and git-cliff puts it in the changelog, so write it for a reader of the release notes.
+Use `type(scope): subject`. The squash commit takes this title and release-please puts it in the changelog, so write it for a reader of the release notes.
 
 - Type is one of `feat`, `fix`, `perf`, `refactor`, `docs`, `test`, `ci`, or `chore`.
 - Scope is the changed area, such as `config`, `scan`, `kafka`, `server`, or `web`. Omit it when the change spans the crate.
