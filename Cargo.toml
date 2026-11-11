@@ -61,7 +61,7 @@ rmcp = { version = "=3.9.0", default-features = false, features = [
     "transport-streamable-http-server",
 ] }
 schemars = { version = "1.2", features = ["jiff02"] }
-schemreg = { version = "0.6", features = ["confluent"] }
+schemreg = { version = "0.7", features = ["confluent"] }
 secrecy = { version = "0.10", features = ["serde"] }
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
