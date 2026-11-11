@@ -83,9 +83,6 @@ pub enum KafkaError {
         partition: i32,
     },
 
-    #[error("klens cannot create or delete a prefixed ACL yet")]
-    PrefixedAcl,
-
     #[error("failed to describe broker {id} configs: {message}")]
     BrokerConfigs { id: i32, message: String },
 
@@ -118,7 +115,6 @@ impl KafkaError {
             Self::ActiveGroup { .. } => "ACTIVE_GROUP",
             Self::ConsumedTopic { .. } => "CONSUMED_TOPIC",
             Self::NoCommittedOffset { .. } => "NO_COMMITTED_OFFSET",
-            Self::PrefixedAcl => "PREFIXED_ACL",
             Self::BrokerConfigs { .. } => "BROKER_CONFIGS",
             Self::SchemaRegistry { .. } => "SCHEMA_REGISTRY",
             Self::Krafka(_) => "CLIENT",

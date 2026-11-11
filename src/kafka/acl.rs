@@ -156,16 +156,13 @@ impl TryFrom<WireResource> for AclResourceType {
     }
 }
 
-// krafka numbers pattern types one below Kafka, whose LITERAL is 3 and
-// PREFIXED is 4, so a stored literal decodes as `Prefixed` and a stored prefix
-// as `Unknown`.
 impl TryFrom<WirePattern> for AclPatternType {
     type Error = SentinelAcl;
 
     fn try_from(value: WirePattern) -> Result<Self, Self::Error> {
         match value {
-            WirePattern::Prefixed => Ok(Self::Literal),
-            WirePattern::Unknown => Ok(Self::Prefixed),
+            WirePattern::Literal => Ok(Self::Literal),
+            WirePattern::Prefixed => Ok(Self::Prefixed),
             _ => Err(SentinelAcl {
                 field: "pattern_type",
             }),
@@ -220,13 +217,11 @@ impl From<AclResourceType> for WireResource {
     }
 }
 
-impl AclPatternType {
-    /// The krafka pattern type Kafka reads as this one. krafka has none that
-    /// Kafka reads as PREFIXED.
-    fn to_krafka(self) -> Result<WirePattern, KafkaError> {
-        match self {
-            Self::Literal => Ok(WirePattern::Prefixed),
-            Self::Prefixed => Err(KafkaError::PrefixedAcl),
+impl From<AclPatternType> for WirePattern {
+    fn from(value: AclPatternType) -> Self {
+        match value {
+            AclPatternType::Literal => Self::Literal,
+            AclPatternType::Prefixed => Self::Prefixed,
         }
     }
 }
@@ -259,8 +254,8 @@ impl From<AclPermission> for WirePermission {
 }
 
 impl Acl {
-    pub(crate) fn to_krafka(&self) -> Result<AclBinding, KafkaError> {
-        Ok(AclBinding::new(
+    pub(crate) fn to_krafka(&self) -> AclBinding {
+        AclBinding::new(
             self.resource_type.into(),
             self.resource_name.as_str(),
             self.principal.as_str(),
@@ -268,18 +263,16 @@ impl Acl {
             self.operation.into(),
             self.permission.into(),
         )
-        .with_pattern_type(self.pattern_type.to_krafka()?))
+        .with_pattern_type(self.pattern_type.into())
     }
 
-    pub(crate) fn to_krafka_filter(&self) -> Result<AclFilter, KafkaError> {
-        Ok(
-            AclFilter::for_resource(self.resource_type.into(), self.resource_name.as_str())
-                .pattern_type(self.pattern_type.to_krafka()?)
-                .principal(self.principal.as_str())
-                .host(self.host.as_str())
-                .operation(self.operation.into())
-                .permission_type(self.permission.into()),
-        )
+    pub(crate) fn to_krafka_filter(&self) -> AclFilter {
+        AclFilter::for_resource(self.resource_type.into(), self.resource_name.as_str())
+            .pattern_type(self.pattern_type.into())
+            .principal(self.principal.as_str())
+            .host(self.host.as_str())
+            .operation(self.operation.into())
+            .permission_type(self.permission.into())
     }
 }
 
@@ -296,7 +289,7 @@ mod tests {
         AclBinding {
             resource_type: WireResource::Topic,
             resource_name: "orders.created".into(),
-            pattern_type: WirePattern::Prefixed,
+            pattern_type: WirePattern::Literal,
             principal: "User:alice".into(),
             host: "*".into(),
             operation: WireOperation::Read,
@@ -341,8 +334,8 @@ mod tests {
     #[test]
     fn try_from_maps_every_stored_pattern_operation_and_permission() {
         for (wire, expected) in [
-            (WirePattern::Prefixed, AclPatternType::Literal),
-            (WirePattern::Unknown, AclPatternType::Prefixed),
+            (WirePattern::Literal, AclPatternType::Literal),
+            (WirePattern::Prefixed, AclPatternType::Prefixed),
         ] {
             let mut binding = stored_binding();
             binding.pattern_type = wire;
@@ -387,7 +380,7 @@ mod tests {
     #[test]
     fn try_from_rejects_sentinels_in_every_enum_position() {
         type Mutate = fn(&mut AclBinding);
-        let cases: [(Mutate, &str); 8] = [
+        let cases: [(Mutate, &str); 9] = [
             (
                 |binding| binding.resource_type = WireResource::Any,
                 "resource_type",
@@ -401,7 +394,11 @@ mod tests {
                 "pattern_type",
             ),
             (
-                |binding| binding.pattern_type = WirePattern::Literal,
+                |binding| binding.pattern_type = WirePattern::Match,
+                "pattern_type",
+            ),
+            (
+                |binding| binding.pattern_type = WirePattern::Unknown,
                 "pattern_type",
             ),
             (
@@ -496,11 +493,11 @@ mod tests {
 
     #[test]
     fn a_literal_acl_reaches_kafka_as_literal_and_matches_only_itself() {
-        let binding = stored_acl().to_krafka().unwrap();
+        let binding = stored_acl().to_krafka();
         assert_eq!(binding.pattern_type.to_i8(), 3, "Kafka's LITERAL");
         assert_eq!(Acl::try_from(binding), Ok(stored_acl()));
 
-        let filter = group_acl().to_krafka_filter().unwrap();
+        let filter = group_acl().to_krafka_filter();
         assert_eq!(filter.pattern_type.to_i8(), 3, "Kafka's LITERAL");
         assert_eq!(filter.resource_type, WireResource::Group);
         assert_eq!(filter.resource_name.as_deref(), Some("order-processor"));
@@ -511,17 +508,18 @@ mod tests {
     }
 
     #[test]
-    fn a_prefixed_acl_is_refused_before_it_reaches_kafka() {
+    fn a_prefixed_acl_reaches_kafka_as_prefixed() {
         let prefixed = Acl {
             pattern_type: AclPatternType::Prefixed,
             ..stored_acl()
         };
 
-        assert!(matches!(prefixed.to_krafka(), Err(KafkaError::PrefixedAcl)));
-        assert!(matches!(
-            prefixed.to_krafka_filter(),
-            Err(KafkaError::PrefixedAcl)
-        ));
+        let binding = prefixed.to_krafka();
+        assert_eq!(binding.pattern_type.to_i8(), 4, "Kafka's PREFIXED");
+        assert_eq!(Acl::try_from(binding), Ok(prefixed.clone()));
+
+        let filter = prefixed.to_krafka_filter();
+        assert_eq!(filter.pattern_type.to_i8(), 4, "Kafka's PREFIXED");
     }
 
     #[test]

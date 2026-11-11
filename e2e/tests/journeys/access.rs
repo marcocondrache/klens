@@ -73,23 +73,23 @@ async fn acls_created_through_klens_are_listed_and_deleted_again() {
         .post(ACLS, &json!({ "bindings": [literal, prefixed] }))
         .await;
 
-    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
-    assert_eq!(body["code"], "PREFIXED_ACL");
-
-    let (status, body) = klens.post(ACLS, &json!({ "bindings": [literal] })).await;
-
     assert_eq!(status, StatusCode::CREATED, "{body}");
     let acls = klens.get(ACLS).await;
     assert_eq!(acls["status"], "ENABLED");
-    assert_eq!(acls["bindings"], json!([literal]));
+    let bindings = acls["bindings"].as_array().expect("bindings");
+    assert_eq!(bindings.len(), 2, "{acls}");
+    assert!(bindings.contains(&literal), "{acls}");
+    assert!(bindings.contains(&prefixed), "{acls}");
 
-    let (status, body) = klens
-        .delete(&format!(
-            "{ACLS}?resourceType=TOPIC&resourceName=orders&patternType=LITERAL&principal=User:alice&host=*&operation=READ&permission=ALLOW"
-        ))
-        .await;
+    for (pattern, name) in [("LITERAL", "orders"), ("PREFIXED", "orders.")] {
+        let (status, body) = klens
+            .delete(&format!(
+                "{ACLS}?resourceType=TOPIC&resourceName={name}&patternType={pattern}&principal=User:alice&host=*&operation=READ&permission=ALLOW"
+            ))
+            .await;
 
-    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+        assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+    }
     assert_eq!(klens.get(ACLS).await["bindings"], json!([]));
 }
 
