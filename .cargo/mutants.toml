@@ -13,6 +13,9 @@ exclude_globs = [
 exclude_re = [
     '<impl (\w+::)*Debug for ',
     '>::expecting\b',
+    # axum-login requires it, but the callback exchanges the code itself to
+    # keep the refresh token, so nothing calls it.
+    '<impl AuthnBackend for AuthBackend>::authenticate\b',
     # krafka's FakeBroker has no DescribeConfigs, IncrementalAlterConfigs,
     # ListGroups, CreatePartitions, DeleteRecords, DeleteGroups, OffsetDelete,
     # CreateAcls, DeleteAcls, AlterClientQuotas or AlterUserScramCredentials

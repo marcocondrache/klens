@@ -59,8 +59,6 @@ pub(crate) enum OidcError {
     InvalidIdToken(String),
     #[error("oidc ID token has expired")]
     Expired,
-    #[error("oidc refresh returned an ID token for another subject")]
-    SubjectChanged,
 }
 
 impl OidcError {
@@ -182,9 +180,6 @@ impl OidcFlow for Oidc {
         // no nonce to match.
         let any_nonce = |_: Option<&Nonce>| Ok(());
         let renewed = self.user(&response, any_nonce, renewal.deadline)?;
-        if renewed.sub != user.sub {
-            return Err(OidcError::SubjectChanged);
-        }
 
         // A provider that does not rotate refresh tokens returns none.
         let refresh_token = response
@@ -231,10 +226,11 @@ impl Oidc {
             }
         }
 
-        let exp = claims.expiration().timestamp().min(deadline);
-        if exp <= Timestamp::now().as_second() {
-            return Err(OidcError::Expired);
-        }
+        let exp = claims_end(
+            claims.expiration().timestamp(),
+            deadline,
+            Timestamp::now().as_second(),
+        )?;
 
         let name = claims.name().and_then(|localized| {
             localized
@@ -251,6 +247,16 @@ impl Oidc {
             exp,
         ))
     }
+}
+
+/// The second the claims of an ID token stop holding, which is never past
+/// the session's deadline.
+fn claims_end(id_token_exp: i64, deadline: i64, now: i64) -> Result<i64, OidcError> {
+    let end = id_token_exp.min(deadline);
+    if end <= now {
+        return Err(OidcError::Expired);
+    }
+    Ok(end)
 }
 
 fn groups_from_id_token(id_token: &str, claim: &str) -> Result<Vec<String>, OidcError> {
@@ -271,6 +277,15 @@ fn groups_from_id_token(id_token: &str, claim: &str) -> Result<Vec<String>, Oidc
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn claims_hold_until_the_id_token_or_the_deadline_ends() {
+        assert_eq!(claims_end(200, 300, 100).unwrap(), 200);
+        assert_eq!(claims_end(400, 300, 100).unwrap(), 300);
+
+        assert!(matches!(claims_end(100, 300, 100), Err(OidcError::Expired)));
+        assert!(matches!(claims_end(400, 100, 100), Err(OidcError::Expired)));
+    }
 
     #[test]
     fn groups_from_id_token_reads_the_payload_claim() {

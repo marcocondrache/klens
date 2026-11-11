@@ -83,6 +83,8 @@ pub struct FakeRefresh {
     /// How long a renewed ID token lasts. At zero every request renews.
     pub id_token_ttl: i64,
     pub fails: bool,
+    /// Set, a renewed ID token names this subject instead of the user's.
+    pub subject: Option<&'static str>,
     pub(super) issued: Arc<AtomicU32>,
 }
 
@@ -114,9 +116,9 @@ impl FakeOidc {
         }
     }
 
-    fn user(&self, groups: &[String], ttl: i64) -> SessionUser {
+    fn user(&self, sub: &str, groups: &[String], ttl: i64) -> SessionUser {
         SessionUser::new(
-            "user-1",
+            sub,
             Some("user@example.com".into()),
             Some("Test User".into()),
             groups.to_vec(),
@@ -149,8 +151,8 @@ impl OidcFlow for FakeOidc {
         }
 
         Ok(match &self.refresh {
-            Some(refresh) => refresh.sign_in(self.user(&self.groups, 0)),
-            None => SignIn::new(self.user(&self.groups, 3600), None),
+            Some(refresh) => refresh.sign_in(self.user("user-1", &self.groups, 0)),
+            None => SignIn::new(self.user("user-1", &self.groups, 3600), None),
         })
     }
 
@@ -164,7 +166,8 @@ impl OidcFlow for FakeOidc {
         // Lets every request that found the token expired reach the renewal.
         tokio::task::yield_now().await;
 
-        let renewed = self.user(&refresh.groups, refresh.id_token_ttl);
+        let sub = refresh.subject.unwrap_or(&user.sub);
+        let renewed = self.user(sub, &refresh.groups, refresh.id_token_ttl);
         Ok(refresh.sign_in(renewed.renewing(user)))
     }
 }

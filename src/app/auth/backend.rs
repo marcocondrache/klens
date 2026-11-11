@@ -154,12 +154,19 @@ impl AuthBackend {
         let flow = self.flow()?;
         let renewal = stale.renewal()?;
 
-        flow.refresh(&stale.user, renewal)
+        let sub = stale.user.sub.as_str();
+        let renewed = flow
+            .refresh(&stale.user, renewal)
             .await
-            .inspect_err(|error| {
-                tracing::warn!(%error, sub = stale.user.sub.as_str(), "oidc refresh failed");
-            })
-            .ok()
+            .inspect_err(|error| tracing::warn!(%error, sub, "oidc refresh failed"))
+            .ok()?;
+
+        if renewed.user.sub != sub {
+            tracing::warn!(sub, "oidc refresh answered for another subject");
+            return None;
+        }
+
+        Some(renewed)
     }
 }
 
@@ -202,7 +209,10 @@ impl AuthnBackend for AuthBackend {
 
 #[cfg(test)]
 mod tests {
+    use openidconnect::RefreshToken;
+
     use super::*;
+    use crate::app::auth::sign_in::Renewal;
     use crate::app::auth::testing::{FakeOidc, FakeRefresh};
 
     fn user(exp: i64) -> SessionUser {
@@ -238,13 +248,10 @@ mod tests {
         assert_eq!(live_user(&backend).await, None);
     }
 
-    #[tokio::test]
-    async fn concurrent_requests_spend_a_refresh_token_once() {
-        let refresh = FakeRefresh {
-            id_token_ttl: 3600,
-            ..FakeRefresh::default()
-        };
-        let flow = FakeOidc::refreshing(&refresh);
+    /// A backend holding the sign-in the fake provider just issued, whose ID
+    /// token has expired.
+    async fn renewing(refresh: &FakeRefresh) -> AuthBackend {
+        let flow = FakeOidc::refreshing(refresh);
         let backend = AuthBackend::enabled(Arc::new(flow.clone()));
         let expired = flow
             .authenticate(
@@ -255,6 +262,53 @@ mod tests {
             .await
             .expect("a sign-in");
         backend.remember(expired).await;
+        backend
+    }
+
+    #[tokio::test]
+    async fn no_renewal_carries_a_sign_in_past_its_deadline() {
+        let refresh = FakeRefresh::default();
+        let past_deadline = || {
+            let now = Timestamp::now().as_second();
+            let renewal = Renewal {
+                refresh_token: RefreshToken::new("refresh-0".to_owned()),
+                deadline: now,
+            };
+            SignIn::new(user(now), Some(renewal))
+        };
+
+        let created = AuthBackend::enabled(Arc::new(FakeOidc::refreshing(&refresh)));
+        created.remember(past_deadline()).await;
+        let updated = AuthBackend::enabled(Arc::new(FakeOidc::refreshing(&refresh)));
+        updated
+            .remember(once(Timestamp::now().as_second() + 60))
+            .await;
+        updated.remember(past_deadline()).await;
+
+        assert_eq!(live_user(&created).await, None);
+        assert_eq!(live_user(&updated).await, None);
+        assert_eq!(refresh.renewals(), 0);
+    }
+
+    #[tokio::test]
+    async fn a_refresh_that_answers_for_another_subject_is_refused() {
+        let refresh = FakeRefresh {
+            subject: Some("mallory"),
+            ..FakeRefresh::default()
+        };
+        let backend = renewing(&refresh).await;
+
+        assert!(backend.live("user-1").await.is_none());
+        assert!(backend.live("mallory").await.is_none());
+    }
+
+    #[tokio::test]
+    async fn concurrent_requests_spend_a_refresh_token_once() {
+        let refresh = FakeRefresh {
+            id_token_ttl: 3600,
+            ..FakeRefresh::default()
+        };
+        let backend = renewing(&refresh).await;
 
         let (first, second, third) = tokio::join!(
             backend.live("user-1"),

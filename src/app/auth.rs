@@ -683,6 +683,40 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_stream_does_not_outlive_its_session_when_the_user_signs_in_again() {
+        let app = TestApp::of([FakeCluster::local()])
+            .auth(AuthState::enabled_for_tests())
+            .build();
+        let mut browser = Browser::serving(app.state().clone());
+        browser.log_in("test-code").await;
+        let mut updates = browser.open("/api/clusters/local/updates").await;
+
+        browser.post("/api/auth/logout").await;
+        browser.log_in("test-code").await;
+        app.store().bus.publish(Change::Acls);
+
+        assert_eq!(updates.next().await.data["code"], "SESSION_EXPIRED");
+    }
+
+    #[tokio::test]
+    async fn a_refreshable_session_lasts_until_its_deadline() {
+        let mut browser = Browser::new(AuthState::enabled_for_tests_with(
+            FakeOidc::refreshing(&FakeRefresh::default()),
+            AccessPolicy::Open,
+        ));
+
+        let callback = browser.log_in("test-code").await;
+
+        let cookie = callback.cookie(SESSION_COOKIE).expect("a session cookie");
+        let max_age: i64 = cookie
+            .split("; ")
+            .find_map(|attribute| attribute.strip_prefix("Max-Age="))
+            .and_then(|seconds| seconds.parse().ok())
+            .unwrap_or_else(|| panic!("no max age in {cookie}"));
+        assert!((3540..=3600).contains(&max_age), "{cookie}");
+    }
+
+    #[tokio::test]
     async fn logging_out_forgets_the_refresh_token() {
         let refresh = FakeRefresh::default();
         let auth =
