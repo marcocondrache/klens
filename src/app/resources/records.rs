@@ -80,8 +80,8 @@ async fn record(
     )))
 }
 
-fn denied(guard: &SessionGuard, cluster: &str) -> Option<ApiError> {
-    let Some(access) = guard.revalidate() else {
+async fn denied(guard: &SessionGuard, cluster: &str) -> Option<ApiError> {
+    let Some(access) = guard.revalidate().await else {
         return Some(ApiError::SessionExpired);
     };
     access

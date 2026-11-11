@@ -27,6 +27,7 @@ pub(crate) mod access;
 mod backend;
 mod login;
 mod oidc;
+mod sign_in;
 mod store;
 #[cfg(test)]
 pub(crate) mod testing;
@@ -75,6 +76,15 @@ impl SessionUser {
             groups,
             exp,
             auth_hash,
+        }
+    }
+
+    /// Keeps the hash of the sign-in these claims renew, so the session that
+    /// sign-in opened stays signed in.
+    fn renewing(self, previous: &Self) -> Self {
+        Self {
+            auth_hash: previous.auth_hash,
+            ..self
         }
     }
 }
@@ -184,16 +194,17 @@ impl SessionGuard {
         }
     }
 
-    pub fn revalidate(&self) -> Option<EffectiveAccess> {
+    /// Renews the sign-in when its ID token has expired, so a stream outlives
+    /// the token as a series of requests would.
+    pub async fn revalidate(&self) -> Option<EffectiveAccess> {
         match &self.holder {
             Holder::Nobody => (!self.auth.is_enabled()).then_some(EffectiveAccess::Unrestricted),
-            // Logout deletes the session record but leaves the user cached by subject.
+            // The subject may have signed in again since this session ended.
             Holder::Session { id, .. } if !self.auth.sessions.contains(id) => None,
-            Holder::Session { subject, .. } => self
-                .auth
-                .backend
-                .with_live_user(subject, |user| self.auth.access_from_user(user))
-                .flatten(),
+            Holder::Session { subject, .. } => {
+                let sign_in = self.auth.backend.live(subject).await?;
+                self.auth.access_from_user(&sign_in.user)
+            }
             Holder::Fixed(access) => Some(access.clone()),
         }
     }
@@ -340,21 +351,15 @@ async fn complete_login(
         return login_error(auth_session, LoginFail::Auth).await;
     };
 
-    let user = match auth_session
-        .authenticate(OidcCredentials {
-            code,
-            pkce_verifier: pending.pkce_verifier,
-            nonce: pending.nonce,
-        })
-        .await
-    {
-        Ok(Some(user)) => user,
-        Ok(None) => return login_error(auth_session, LoginFail::Auth).await,
-        Err(error) => {
-            tracing::error!(%error, "oidc authenticate failed");
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
+    let credentials = OidcCredentials {
+        code,
+        pkce_verifier: pending.pkce_verifier,
+        nonce: pending.nonce,
     };
+    let Some(sign_in) = auth.backend.exchange(credentials).await else {
+        return login_error(auth_session, LoginFail::Auth).await;
+    };
+    let user = sign_in.user.clone();
 
     if auth.access_from_user(&user).is_none() {
         tracing::info!(
@@ -364,12 +369,12 @@ async fn complete_login(
         return login_error(auth_session, LoginFail::Forbidden).await;
     }
 
-    let ttl = (user.exp - Timestamp::now().as_second()).max(1);
+    let ttl = (sign_in.ends_at() - Timestamp::now().as_second()).max(1);
     auth_session
         .session
         .set_expiry(Some(Expiry::OnInactivity(Duration::seconds(ttl))));
 
-    auth_session.backend.remember(user.clone());
+    auth.backend.remember(sign_in).await;
 
     if let Err(error) = auth_session.login(&user).await {
         tracing::error!(%error, "failed to establish session");
@@ -380,11 +385,19 @@ async fn complete_login(
     Redirect::to("/login?from=callback").into_response()
 }
 
-async fn logout(mut auth_session: AuthSession) -> impl IntoResponse {
-    if let Err(error) = auth_session.logout().await {
-        tracing::error!(%error, "failed to log out");
-        return StatusCode::INTERNAL_SERVER_ERROR;
+async fn logout(State(state): State<AppState>, mut auth_session: AuthSession) -> impl IntoResponse {
+    let user = match auth_session.logout().await {
+        Ok(user) => user,
+        Err(error) => {
+            tracing::error!(%error, "failed to log out");
+            return StatusCode::INTERNAL_SERVER_ERROR;
+        }
+    };
+
+    if let Some(user) = user {
+        state.auth.backend.forget(&user.sub).await;
     }
+
     StatusCode::NO_CONTENT
 }
 
@@ -421,7 +434,7 @@ mod tests {
     use axum::http::StatusCode;
 
     use super::login::LOGIN_COOKIE;
-    use super::testing::{Browser, FakeOidc};
+    use super::testing::{Browser, FakeOidc, FakeRefresh};
     use super::*;
     use crate::kafka::store::Change;
     use crate::testing::{FakeCluster, LogCapture, TestApp, yaml};
@@ -670,6 +683,110 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn logging_out_forgets_the_refresh_token() {
+        let refresh = FakeRefresh::default();
+        let auth =
+            AuthState::enabled_for_tests_with(FakeOidc::refreshing(&refresh), AccessPolicy::Open);
+        let mut browser = Browser::new(auth.clone());
+        browser.log_in("test-code").await;
+
+        browser.post("/api/auth/logout").await;
+
+        assert!(auth.backend.live("user-1").await.is_none());
+    }
+
+    #[tokio::test]
+    async fn a_refresh_token_carries_the_session_past_its_id_token() {
+        let refresh = FakeRefresh::default();
+        let mut browser = Browser::new(AuthState::enabled_for_tests_with(
+            FakeOidc::refreshing(&refresh),
+            AccessPolicy::Open,
+        ));
+        browser.log_in("test-code").await;
+
+        // Each request finds the ID token expired, so the second one passes
+        // only with the refresh token the first renewal rotated in.
+        assert_eq!(browser.get("/api/clusters").await.status, StatusCode::OK);
+        assert_eq!(browser.get("/api/clusters").await.status, StatusCode::OK);
+
+        assert_eq!(
+            browser.get("/api/auth/me").await.json()["user"]["sub"],
+            "user-1"
+        );
+        assert_eq!(refresh.renewals(), 3);
+    }
+
+    #[tokio::test]
+    async fn a_renewal_applies_the_groups_the_provider_reports_now() {
+        let refresh = FakeRefresh {
+            groups: vec!["klens-viewers".into()],
+            id_token_ttl: 3600,
+            ..FakeRefresh::default()
+        };
+        let flow = FakeOidc {
+            groups: vec!["klens-admins".into(), "klens-viewers".into()],
+            refresh: Some(refresh),
+        };
+        let roles = yaml(
+            "
+            admin: {privileges: [records], bindings: [{groups: [klens-admins]}]}
+            viewer: {privileges: [], bindings: [{groups: [klens-viewers]}]}
+            ",
+        );
+        let policy = AccessPolicy::from_roles(Some(&roles));
+        let mut browser = Browser::new(AuthState::enabled_for_tests_with(flow, policy));
+        browser.log_in("test-code").await;
+
+        let whoami = browser.get("/api/whoami").await.json();
+
+        assert_eq!(
+            whoami["clusters"][0]["roles"],
+            serde_json::json!(["viewer"])
+        );
+    }
+
+    #[tokio::test]
+    async fn a_refused_refresh_ends_the_session() {
+        let refresh = FakeRefresh {
+            fails: true,
+            ..FakeRefresh::default()
+        };
+        let mut browser = Browser::new(AuthState::enabled_for_tests_with(
+            FakeOidc::refreshing(&refresh),
+            AccessPolicy::Open,
+        ));
+        let logs = LogCapture::at(tracing::Level::WARN);
+        browser.log_in("test-code").await;
+
+        assert_eq!(
+            browser.get("/api/clusters").await.status,
+            StatusCode::UNAUTHORIZED
+        );
+        assert!(browser.get("/api/auth/me").await.json()["user"].is_null());
+        logs.assert_contains("oidc refresh failed");
+    }
+
+    #[tokio::test]
+    async fn an_open_stream_renews_the_sign_in_it_runs_under() {
+        let refresh = FakeRefresh::default();
+        let app = TestApp::of([FakeCluster::local()])
+            .auth(AuthState::enabled_for_tests_with(
+                FakeOidc::refreshing(&refresh),
+                AccessPolicy::Open,
+            ))
+            .build();
+        let mut browser = Browser::serving(app.state().clone());
+        browser.log_in("test-code").await;
+        let mut updates = browser.open("/api/clusters/local/updates").await;
+        let renewed_to_open = refresh.renewals();
+
+        app.store().bus.publish(Change::Acls);
+
+        assert_eq!(updates.next().await.name, "acls");
+        assert!(refresh.renewals() > renewed_to_open);
+    }
+
+    #[tokio::test]
     async fn callback_rejects_a_login_signed_by_another_key() {
         let mut browser = Browser::new(AuthState::enabled_for_tests());
         let login = browser.get("/api/auth/login").await;
@@ -694,6 +811,7 @@ mod tests {
         let mut browser = Browser::new(AuthState::enabled_for_tests_with(
             FakeOidc {
                 groups: vec!["other".into()],
+                ..FakeOidc::default()
             },
             bound_admins(),
         ));

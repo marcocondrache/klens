@@ -4,12 +4,14 @@ use std::time::Duration;
 use anyhow::{Context, anyhow};
 use async_trait::async_trait;
 use jiff::Timestamp;
-use openidconnect::core::{CoreAuthenticationFlow, CoreClient, CoreProviderMetadata};
+use openidconnect::core::{
+    CoreAuthenticationFlow, CoreClient, CoreProviderMetadata, CoreTokenResponse,
+};
 use openidconnect::reqwest;
 use openidconnect::{
     AccessTokenHash, AuthorizationCode, ClientId, ClientSecret, CsrfToken, EndpointMaybeSet,
-    EndpointNotSet, EndpointSet, Nonce, OAuth2TokenResponse, PkceCodeChallenge, PkceCodeVerifier,
-    Scope, TokenResponse,
+    EndpointNotSet, EndpointSet, Nonce, NonceVerifier, OAuth2TokenResponse, PkceCodeChallenge,
+    PkceCodeVerifier, Scope, TokenResponse,
 };
 use secrecy::ExposeSecret;
 
@@ -24,6 +26,7 @@ type DiscoveredClient = CoreClient<
 
 use super::SessionUser;
 use super::access::groups_from_json;
+use super::sign_in::{Renewal, SignIn};
 use crate::config;
 
 #[async_trait]
@@ -40,7 +43,10 @@ pub(crate) trait OidcFlow: Send + Sync {
         code: String,
         pkce_verifier: PkceCodeVerifier,
         nonce: Nonce,
-    ) -> Result<SessionUser, OidcError>;
+    ) -> Result<SignIn, OidcError>;
+
+    /// Trades the refresh token for the claims the provider vouches for now.
+    async fn refresh(&self, user: &SessionUser, renewal: &Renewal) -> Result<SignIn, OidcError>;
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -53,6 +59,8 @@ pub(crate) enum OidcError {
     InvalidIdToken(String),
     #[error("oidc ID token has expired")]
     Expired,
+    #[error("oidc refresh returned an ID token for another subject")]
+    SubjectChanged,
 }
 
 impl OidcError {
@@ -139,8 +147,8 @@ impl OidcFlow for Oidc {
         code: String,
         pkce_verifier: PkceCodeVerifier,
         nonce: Nonce,
-    ) -> Result<SessionUser, OidcError> {
-        let token_response = self
+    ) -> Result<SignIn, OidcError> {
+        let response = self
             .client
             .exchange_code(AuthorizationCode::new(code))
             .map_err(OidcError::exchange)?
@@ -149,10 +157,64 @@ impl OidcFlow for Oidc {
             .await
             .map_err(OidcError::exchange)?;
 
-        let id_token = token_response.id_token().ok_or(OidcError::NoIdToken)?;
+        let deadline = Timestamp::now()
+            .as_second()
+            .saturating_add(self.max_session_secs);
+        let user = self.user(&response, &nonce, deadline)?;
+        let renewal = response.refresh_token().map(|refresh_token| Renewal {
+            refresh_token: refresh_token.clone(),
+            deadline,
+        });
+
+        Ok(SignIn::new(user, renewal))
+    }
+
+    async fn refresh(&self, user: &SessionUser, renewal: &Renewal) -> Result<SignIn, OidcError> {
+        let response = self
+            .client
+            .exchange_refresh_token(&renewal.refresh_token)
+            .map_err(OidcError::exchange)?
+            .request_async(&self.http)
+            .await
+            .map_err(OidcError::exchange)?;
+
+        // A refreshed ID token answers no authorization request, so it has
+        // no nonce to match.
+        let any_nonce = |_: Option<&Nonce>| Ok(());
+        let renewed = self.user(&response, any_nonce, renewal.deadline)?;
+        if renewed.sub != user.sub {
+            return Err(OidcError::SubjectChanged);
+        }
+
+        // A provider that does not rotate refresh tokens returns none.
+        let refresh_token = response
+            .refresh_token()
+            .unwrap_or(&renewal.refresh_token)
+            .clone();
+
+        Ok(SignIn::new(
+            renewed.renewing(user),
+            Some(Renewal {
+                refresh_token,
+                deadline: renewal.deadline,
+            }),
+        ))
+    }
+}
+
+impl Oidc {
+    /// Reads the user out of the response's ID token, whose claims hold
+    /// until the token expires or `deadline`, whichever comes first.
+    fn user(
+        &self,
+        response: &CoreTokenResponse,
+        nonce: impl NonceVerifier,
+        deadline: i64,
+    ) -> Result<SessionUser, OidcError> {
+        let id_token = response.id_token().ok_or(OidcError::NoIdToken)?;
         let verifier = self.client.id_token_verifier();
         let claims = id_token
-            .claims(&verifier, &nonce)
+            .claims(&verifier, nonce)
             .map_err(OidcError::invalid)?;
 
         if let Some(expected_hash) = claims.access_token_hash() {
@@ -160,24 +222,17 @@ impl OidcFlow for Oidc {
             let signing_key = id_token
                 .signing_key(&verifier)
                 .map_err(OidcError::invalid)?;
-            let actual_hash = AccessTokenHash::from_token(
-                token_response.access_token(),
-                signing_alg,
-                signing_key,
-            )
-            .map_err(OidcError::invalid)?;
+            let actual_hash =
+                AccessTokenHash::from_token(response.access_token(), signing_alg, signing_key)
+                    .map_err(OidcError::invalid)?;
 
             if actual_hash != *expected_hash {
                 return Err(OidcError::invalid("access token hash mismatch"));
             }
         }
 
-        let now = Timestamp::now().as_second();
-        let exp = claims
-            .expiration()
-            .timestamp()
-            .min(now.saturating_add(self.max_session_secs));
-        if exp <= now {
+        let exp = claims.expiration().timestamp().min(deadline);
+        if exp <= Timestamp::now().as_second() {
             return Err(OidcError::Expired);
         }
 

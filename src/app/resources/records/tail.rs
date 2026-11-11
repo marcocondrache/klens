@@ -63,7 +63,7 @@ impl Follow {
                     Ok(batch) => batch,
                     Err(error) => return Some(state.end(error.into())),
                 };
-                if let Some(error) = denied(&state.guard, &state.cluster) {
+                if let Some(error) = denied(&state.guard, &state.cluster).await {
                     return Some(state.end(error));
                 }
                 if batch.is_empty() {

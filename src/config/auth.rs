@@ -49,7 +49,8 @@ pub struct Session {
     /// How long a login may take at the provider.
     #[serde(deserialize_with = "duration")]
     pub login_timeout: Duration,
-    /// How long a session lasts at most, even if its ID token lasts longer.
+    /// How long a session lasts at most, even if its ID token lasts longer
+    /// or a refresh token keeps renewing it.
     #[serde(deserialize_with = "duration")]
     pub max_age: Duration,
 }
