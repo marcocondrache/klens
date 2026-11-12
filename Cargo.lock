@@ -2178,9 +2178,9 @@ dependencies = [
 
 [[package]]
 name = "krafka"
-version = "0.30.0"
+version = "0.31.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5485a00829f4aec59a3f560b23b99d05a97cf16c3625be102f54409cebf54d40"
+checksum = "29f79988130f1a10be36c693a6f75bccc14eb2ed70b139aa41b558f1418b553b"
 dependencies = [
  "ahash",
  "arc-swap",
@@ -2195,6 +2195,7 @@ dependencies = [
  "parking_lot",
  "pbkdf2 0.12.2",
  "rand 0.9.5",
+ "regex-lite",
  "rustls",
  "ruzstd",
  "sha2 0.10.9",
