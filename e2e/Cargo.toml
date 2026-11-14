@@ -9,7 +9,7 @@ workspace = true
 
 [dependencies]
 klens = { path = ".." }
-krafka = "0.31.0"
+krafka = "0.32.0"
 reqwest = { version = "0.13", default-features = false }
 serde_json = "1"
 tempfile = "3"
