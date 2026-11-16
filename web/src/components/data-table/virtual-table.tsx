@@ -29,7 +29,7 @@ export function VirtualTable<TData extends RowData>({
   stale = false,
   footer,
 }: VirtualTableProps<TData>) {
-  const columns = table.getAllLeafColumns();
+  const columns = table.getVisibleLeafColumns();
 
   return (
     <TableLayoutContext value="virtual">
