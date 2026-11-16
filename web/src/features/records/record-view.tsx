@@ -7,7 +7,9 @@ import type { KafkaRecord, TopicDetail } from "@/lib/api/types";
 
 import { ObfuscatedBadge } from "./obfuscated-badge";
 import { useRecordAddress } from "./record-address";
+import { useRecordColumnVisibility } from "./record-column-visibility";
 import { recordColumns } from "./record-columns";
+import { RecordColumnsMenu } from "./record-columns-menu";
 import { partitionField, type RecordFilter } from "./record-filter";
 import { recordId } from "./record-id";
 import { RecordJump } from "./record-jump";
@@ -64,6 +66,7 @@ export function RecordView({
   emptyState,
 }: RecordViewProps) {
   const { address, open } = useRecordAddress();
+  const [columnVisibility, setColumnVisibility] = useRecordColumnVisibility(cluster, topic.name);
 
   const { records, obfuscated } = source;
   const showSchemaPicker =
@@ -82,6 +85,8 @@ export function RecordView({
         />
 
         <RecordOrderToggle value={mode} onChange={onModeChange} />
+
+        <RecordColumnsMenu value={columnVisibility} onChange={setColumnVisibility} />
 
         <FilterBar
           fields={fields}
@@ -120,6 +125,7 @@ export function RecordView({
         columns={recordColumns}
         data={records}
         getRowId={recordId}
+        columnVisibility={columnVisibility}
         loading={source.loading}
         refreshing={source.refreshing}
         stale={source.stale}

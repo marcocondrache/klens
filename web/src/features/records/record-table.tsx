@@ -1,5 +1,10 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { useTable, type ColumnDef, type RowData } from "@tanstack/react-table";
+import {
+  useTable,
+  type ColumnDef,
+  type ColumnVisibilityState,
+  type RowData,
+} from "@tanstack/react-table";
 
 import { features, type DataTableFeatures } from "@/components/data-table/features";
 import { DataTableMessageRow, DataTableSkeletonRows } from "@/components/data-table/rows";
@@ -16,6 +21,7 @@ interface RecordTableProps<TData extends RowData> {
   columns: Array<ColumnDef<DataTableFeatures, TData>>;
   data: TData[];
   getRowId: (row: TData) => string;
+  columnVisibility: ColumnVisibilityState;
   onRowClick?: (row: TData) => void;
   selectedKey?: string;
   loading?: boolean;
@@ -35,6 +41,7 @@ export function RecordTable<TData extends RowData>({
   columns,
   data,
   getRowId,
+  columnVisibility,
   onRowClick,
   selectedKey,
   loading = false,
@@ -53,10 +60,11 @@ export function RecordTable<TData extends RowData>({
     columns,
     getRowId,
     enableSorting: false,
+    state: { columnVisibility },
   });
 
   const rows = table.getRowModel().rows;
-  const leafColumns = table.getAllLeafColumns();
+  const leafColumns = table.getVisibleLeafColumns();
   const awaitingFirstPage = rows.length === 0 && hasNextPage && error == null;
   const canFetchMore = hasNextPage && !isFetchingNextPage && !isFetchNextPageError;
 

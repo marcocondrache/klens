@@ -1,7 +1,6 @@
 import { createColumnHelper } from "@tanstack/react-table";
 
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { DataTableColumnHeader } from "@/components/data-table/column-header";
 import { type DataTableFeatures } from "@/components/data-table/features";
 import { formatBytes, formatRelative, formatTimestamp } from "@/lib/format";
 import type { KafkaRecord } from "@/lib/api/types";
@@ -17,27 +16,25 @@ function preview(value: string | null) {
 
 const columnHelper = createColumnHelper<DataTableFeatures, KafkaRecord>();
 
+// Headers stay plain strings so the column menu can reuse them as labels.
 export const recordColumns = columnHelper.columns([
   columnHelper.accessor("partition", {
     size: 64,
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Part" className="justify-end" />
-    ),
+    header: "Part",
     meta: { align: "right" },
     cell: ({ getValue }) => <span className="numeric text-muted-foreground">{getValue()}</span>,
   }),
   columnHelper.accessor("offset", {
     size: 120,
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Offset" className="justify-end" />
-    ),
+    header: "Offset",
+    enableHiding: false,
     meta: { align: "right" },
     cell: ({ getValue }) => <span className="numeric">{getValue()}</span>,
   }),
   columnHelper.accessor((record) => record.key ?? "", {
     id: "key",
     size: 192,
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Key" />,
+    header: "Key",
     cell: ({ row }) => (
       <span
         className={cn(
@@ -51,7 +48,8 @@ export const recordColumns = columnHelper.columns([
   }),
   columnHelper.accessor((record) => record.value ?? "", {
     id: "value",
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Value" />,
+    header: "Value",
+    enableHiding: false,
     meta: { grow: true },
     cell: ({ row }) => (
       <span className="block truncate font-mono text-muted-foreground">
@@ -62,9 +60,7 @@ export const recordColumns = columnHelper.columns([
   columnHelper.accessor("sizeBytes", {
     id: "size",
     size: 96,
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Size" className="justify-end" />
-    ),
+    header: "Size",
     meta: { align: "right" },
     cell: ({ getValue }) => (
       <span className="numeric text-muted-foreground">{formatBytes(getValue())}</span>
@@ -72,9 +68,7 @@ export const recordColumns = columnHelper.columns([
   }),
   columnHelper.accessor("timestamp", {
     size: 184,
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Timestamp" className="justify-end" />
-    ),
+    header: "Timestamp",
     meta: { align: "right" },
     cell: ({ getValue }) => (
       <Tooltip>
