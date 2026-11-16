@@ -17,7 +17,7 @@ export function StaticTable<TData extends RowData>({
   stale = false,
   footer,
 }: TableViewProps<TData>) {
-  const columns = table.getAllLeafColumns();
+  const columns = table.getVisibleLeafColumns();
   const growShare = `${100 / columns.filter(isGrowing).length}%`;
 
   return (
