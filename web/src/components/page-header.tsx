@@ -20,7 +20,7 @@ export function PageHeader({
         <div className="flex min-h-7 flex-wrap items-center gap-2">
           <h1
             className={cn(
-              "truncate text-xl font-semibold tracking-[-0.015em]",
+              "min-w-0 text-xl font-semibold tracking-[-0.015em] wrap-anywhere",
               mono && "font-mono text-lg tracking-[-0.02em]",
             )}
           >

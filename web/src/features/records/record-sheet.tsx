@@ -216,7 +216,7 @@ export function RecordSheet({
                   <dl className="grid max-h-40 grid-cols-[minmax(0,auto)_minmax(0,1fr)] gap-x-6 overflow-y-auto rounded-lg border bg-subtle px-3 py-2 font-mono text-sm">
                     {selectedRecord.headers.map((header) => (
                       <div key={header.key} className="contents">
-                        <dt className="truncate py-1 text-muted-foreground">{header.key}</dt>
+                        <dt className="py-1 break-all text-muted-foreground">{header.key}</dt>
                         <dd className="py-1 break-all">{header.value}</dd>
                       </div>
                     ))}
