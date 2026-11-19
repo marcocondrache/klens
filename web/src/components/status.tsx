@@ -22,7 +22,7 @@ const TONE_PILL: Record<Tone, string> = {
   warn: "bg-warn/14 text-warn",
   error: "bg-destructive/12 text-destructive",
   idle: "bg-muted text-muted-foreground shadow-[inset_0_0_0_1px_var(--color-border)]",
-  brand: "bg-brand/12 text-brand",
+  brand: "bg-brand/12 text-brand-text",
 };
 
 const TONE_TEXT: Record<Tone, string> = {
@@ -30,7 +30,7 @@ const TONE_TEXT: Record<Tone, string> = {
   warn: "text-warn",
   error: "text-destructive",
   idle: "text-muted-foreground",
-  brand: "text-brand",
+  brand: "text-brand-text",
 };
 
 export function StatusDot({

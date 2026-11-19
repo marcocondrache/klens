@@ -24,6 +24,7 @@
   --font-mono: "Geist Mono Optical", "Geist Mono Variable", ui-monospace, monospace;
   --color-brand: var(--brand);
   --color-brand-foreground: var(--brand-foreground);
+  --color-brand-text: var(--brand-text);
   --color-brand-muted: var(--brand-muted);
   --color-ok: var(--ok);
   --color-warn: var(--warn);
@@ -83,10 +84,11 @@
   --radius: 0.5rem;
 
   --brand: oklch(0.68 0.19 45);
+  --brand-text: oklch(0.55 0.19 45);
   --brand-foreground: oklch(0.99 0.01 80);
   --brand-muted: oklch(0.68 0.19 45 / 14%);
-  --ok: oklch(0.56 0.14 155);
-  --warn: oklch(0.64 0.15 65);
+  --ok: oklch(0.505 0.14 155);
+  --warn: oklch(0.525 0.15 65);
 
   --background: oklch(1 0 0);
   --foreground: oklch(0.2 0.006 286);
@@ -95,7 +97,7 @@
   --card-foreground: oklch(0.2 0.006 286);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.2 0.006 286);
-  --primary: oklch(0.62 0.2 42);
+  --primary: oklch(0.58 0.2 42);
   --primary-foreground: oklch(0.99 0.01 80);
   --secondary: oklch(0.965 0.002 286);
   --secondary-foreground: oklch(0.2 0.006 286);
@@ -103,7 +105,7 @@
   --muted-foreground: oklch(0.52 0.014 286);
   --accent: oklch(0.955 0.002 286);
   --accent-foreground: oklch(0.2 0.006 286);
-  --destructive: oklch(0.58 0.22 27);
+  --destructive: oklch(0.55 0.22 27);
   --border: oklch(0.915 0.004 286);
   --input: oklch(0.9 0.005 286);
   --ring: oklch(0.68 0.19 45 / 55%);
@@ -114,7 +116,7 @@
   --chart-5: oklch(0.27 0.008 286);
   --sidebar: oklch(0.975 0.002 286);
   --sidebar-foreground: oklch(0.36 0.01 286);
-  --sidebar-primary: oklch(0.62 0.2 42);
+  --sidebar-primary: oklch(0.58 0.2 42);
   --sidebar-primary-foreground: oklch(0.99 0.01 80);
   --sidebar-accent: oklch(0.935 0.003 286);
   --sidebar-accent-foreground: oklch(0.2 0.006 286);
@@ -124,6 +126,7 @@
 
 .dark {
   --brand: oklch(0.74 0.17 52);
+  --brand-text: oklch(0.74 0.17 52);
   --brand-foreground: oklch(0.18 0.02 45);
   --brand-muted: oklch(0.74 0.17 52 / 18%);
   --ok: oklch(0.74 0.14 155);
