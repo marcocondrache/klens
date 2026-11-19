@@ -9,6 +9,7 @@ import { AppHeader } from "@/components/app-header";
 import { AppSidebar } from "@/components/app-sidebar";
 import { CommandPalette } from "@/components/command-palette";
 import { CatalogLoading, ClustersLoading } from "@/components/page-loading";
+import { usePageTitle } from "@/hooks/use-page-title";
 import { useClusterHealth, useClusterNames } from "@/lib/api/catalog";
 import { useUpdates, type Scope } from "@/lib/api/updates";
 import { isFirstCatalogPending, useClusterName } from "@/lib/clusters";
@@ -26,6 +27,7 @@ function AppLayout() {
   const { data: health } = useClusterHealth(cluster);
   const scope = useRouteScope();
   useUpdates(cluster, scope);
+  usePageTitle();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const known = clusters?.includes(cluster);
 
