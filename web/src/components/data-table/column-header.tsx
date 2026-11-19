@@ -39,7 +39,7 @@ export function DataTableColumnHeader<TData extends RowData, TValue>({
               onClick={() => column.toggleSorting(sorted === "asc")}
               aria-label={`Sort by ${title}`}
               className={cn(
-                "group/sort -mx-1 inline-flex h-6 items-center gap-1 rounded-md px-1 outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50",
+                "group/sort -mx-1 inline-flex h-6 items-center gap-1 rounded-md px-1 outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring",
                 right && "flex-row-reverse",
                 sorted && "text-foreground",
               )}

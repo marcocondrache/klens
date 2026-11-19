@@ -259,7 +259,7 @@ function SchemaLink({ cluster, topic, id }: { cluster: string; topic: string; id
             to="/cluster/$cluster/schemas"
             params={{ cluster }}
             search={{ subject: subject.subject, version }}
-            className="text-primary underline-offset-4 outline-none hover:underline focus-visible:underline"
+            className="rounded-sm text-primary underline-offset-4 outline-none hover:underline focus-visible:underline focus-visible:ring-2 focus-visible:ring-ring"
           />
         }
       >
