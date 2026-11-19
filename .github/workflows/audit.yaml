@@ -24,7 +24,7 @@ jobs:
         with:
           toolchain: stable
       - name: Install cargo-audit
-        uses: taiki-e/install-action@d3987c21c5eaa7032030b1443adb92ad26c75295 # cargo-audit
+        uses: taiki-e/install-action@cdd500fcb345d29dabc5617aab1edf24d5211116 # cargo-audit
       - name: Audit dependencies
         run: cargo audit
 

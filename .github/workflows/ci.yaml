@@ -77,7 +77,7 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all --check
       - name: Install taplo
-        uses: taiki-e/install-action@d53d53928f9e355e161a9d15b700fd9e73df015a # taplo
+        uses: taiki-e/install-action@5a039eecb73857e66b783b2f0d109d029b895372 # taplo
       - name: Check Cargo manifest formatting
         run: taplo fmt --check
       - name: Check for typos
@@ -148,7 +148,7 @@ jobs:
           shared-key: tests
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install nextest
-        uses: taiki-e/install-action@e800962fea8b802cd1bd32c4e6f08fbda4bb0048 # nextest
+        uses: taiki-e/install-action@d75f3433052800716ea4e9618494c31d16de4188 # nextest
       - name: Run tests
         run: cargo nextest run --workspace --exclude e2e --locked
 
@@ -176,7 +176,7 @@ jobs:
           shared-key: e2e
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install nextest
-        uses: taiki-e/install-action@e800962fea8b802cd1bd32c4e6f08fbda4bb0048 # nextest
+        uses: taiki-e/install-action@d75f3433052800716ea4e9618494c31d16de4188 # nextest
       - name: Run end-to-end tests against Kafka in Docker
         env:
           KAFKA_IMAGE_TAG: ${{ matrix.kafka }}
@@ -257,7 +257,7 @@ jobs:
         with:
           toolchain: stable
       - name: Install cargo-audit
-        uses: taiki-e/install-action@d3987c21c5eaa7032030b1443adb92ad26c75295 # cargo-audit
+        uses: taiki-e/install-action@cdd500fcb345d29dabc5617aab1edf24d5211116 # cargo-audit
       - name: Audit dependencies
         run: cargo audit
 
@@ -275,7 +275,7 @@ jobs:
         with:
           toolchain: stable
       - name: Install cargo-machete
-        uses: taiki-e/install-action@1fb28cf827c910392818bb4ca39d5bdf865f00f2 # cargo-machete
+        uses: taiki-e/install-action@46f65da83a570756ecbba6e240811c7f7e065007 # cargo-machete
       - name: Check unused dependencies
         run: cargo machete
 
@@ -306,9 +306,9 @@ jobs:
           shared-key: tests
           save-if: false
       - name: Install nextest
-        uses: taiki-e/install-action@e800962fea8b802cd1bd32c4e6f08fbda4bb0048 # nextest
+        uses: taiki-e/install-action@d75f3433052800716ea4e9618494c31d16de4188 # nextest
       - name: Install cargo-mutants
-        uses: taiki-e/install-action@6f6ad629c1fd1293bc684f8431347e346f78d633 # cargo-mutants
+        uses: taiki-e/install-action@789dd0541b00acfdfb88c8259fd793957cd7c8a7 # cargo-mutants
       - name: Run cargo-mutants on the pull request diff
         env:
           CARGO_INCREMENTAL: 1
