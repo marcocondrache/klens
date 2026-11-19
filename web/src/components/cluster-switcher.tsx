@@ -25,7 +25,7 @@ export function ClusterSwitcher() {
     <DropdownMenu>
       <DropdownMenuTrigger
         render={
-          <button className="flex min-w-0 items-center gap-1.5 rounded-md font-medium text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/50" />
+          <button className="flex min-w-0 items-center gap-1.5 rounded-md font-medium text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring" />
         }
       >
         <StatusDot tone={tone} label={clusterStatus(tone)} />
