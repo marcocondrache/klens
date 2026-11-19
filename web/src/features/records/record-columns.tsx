@@ -39,7 +39,7 @@ export const recordColumns = columnHelper.columns([
       <span
         className={cn(
           "block max-w-48 truncate font-mono",
-          row.original.key == null && "text-muted-foreground/60 italic",
+          row.original.key == null && "text-muted-foreground italic",
         )}
       >
         {row.original.key ?? "null"}

@@ -77,15 +77,7 @@ const columns = columnHelper.columns([
         return <StatusLabel tone="brand">{SOURCE_LABEL[source]}</StatusLabel>;
       }
 
-      return (
-        <span
-          className={
-            source === "DEFAULT_CONFIG" ? "text-muted-foreground/60" : "text-muted-foreground"
-          }
-        >
-          {SOURCE_LABEL[source]}
-        </span>
-      );
+      return <span className="text-muted-foreground">{SOURCE_LABEL[source]}</span>;
     },
   }),
 ]);
