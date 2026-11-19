@@ -15,6 +15,18 @@ export function clusterTone(health: ClusterHealth | null | undefined): Tone {
   return lanes(health).every((lane) => lane.healthy) ? "ok" : "warn";
 }
 
+const CLUSTER_STATUS: Record<Tone, string> = {
+  ok: "Healthy",
+  warn: "Degraded",
+  error: "Unreachable",
+  idle: "Connecting",
+  brand: "Connecting",
+};
+
+export function clusterStatus(tone: Tone): string {
+  return CLUSTER_STATUS[tone];
+}
+
 export function isFirstCatalogPending(health: ClusterHealth | null | undefined): boolean {
   return health != null && !health.ready && health.topology.lastError == null;
 }

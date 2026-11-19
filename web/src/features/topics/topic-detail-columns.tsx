@@ -1,7 +1,7 @@
 import { createColumnHelper } from "@tanstack/react-table";
 
 import { type DataTableFeatures } from "@/components/data-table/features";
-import { GroupStateBadge, LagValue, Pill, SizeValue } from "@/components/status";
+import { GroupStateBadge, LagValue, Pill, SizeValue, ToneValue } from "@/components/status";
 import type { PartitionRow, TopicGroupRow } from "@/lib/api/types";
 import { formatNumber } from "@/lib/format";
 
@@ -45,15 +45,12 @@ export const partitionColumns = partitionColumnHelper.columns([
     size: 80,
     meta: { align: "right" },
     cell: ({ row }) => (
-      <span
-        className={
-          row.original.isr.length < row.original.replicas.length
-            ? "numeric text-warn"
-            : "numeric text-muted-foreground"
-        }
+      <ToneValue
+        tone={row.original.isr.length < row.original.replicas.length ? "warn" : "idle"}
+        className="numeric"
       >
         {row.original.isr.length}/{row.original.replicas.length}
-      </span>
+      </ToneValue>
     ),
   }),
   partitionColumnHelper.accessor("lowWatermark", {

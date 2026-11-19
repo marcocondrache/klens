@@ -16,7 +16,8 @@ import { InputGroup, InputGroupAddon } from "@/components/ui/input-group";
 import { StatusDot } from "@/components/status";
 import { useClusters, useSearch } from "@/lib/api/catalog";
 import type { SearchHit } from "@/lib/api/types";
-import { clusterTone, useClusterName } from "@/lib/clusters";
+import { clusterStatus, clusterTone, useClusterName } from "@/lib/clusters";
+import type { Tone } from "@/lib/tone";
 import { apiErrorMessage } from "@/lib/api/client";
 import { useAccess } from "@/hooks/use-access";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
@@ -107,7 +108,7 @@ export function CommandPalette({
           id: `cluster:${entry.cluster}`,
           label: entry.cluster,
           icon: ServerIcon,
-          detail: <StatusDot tone={clusterTone(entry)} />,
+          detail: <ClusterStatus tone={clusterTone(entry)} />,
           select: () => switchCluster(entry.cluster),
         })),
       },
@@ -202,5 +203,14 @@ export function CommandPalette({
         </Autocomplete.Root>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function ClusterStatus({ tone }: { tone: Tone }) {
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <StatusDot tone={tone} />
+      {clusterStatus(tone)}
+    </span>
   );
 }
