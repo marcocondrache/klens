@@ -44,7 +44,7 @@ governor = { version = "0.10", default-features = false, features = ["std"] }
 hmac = "0.13"
 indexmap = { version = "2", features = ["serde"] }
 itertools = "0.15"
-jiff = { version = "0.2", default-features = false, features = ["serde", "std"] }
+jiff = { version = "1.0", default-features = false, features = ["serde", "std"] }
 krafka = "0.31.0"
 memory-serve = { version = "2.4", optional = true }
 moka = { version = "0.12", features = ["future", "sync"] }
