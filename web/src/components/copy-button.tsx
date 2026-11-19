@@ -4,7 +4,8 @@ import { cn } from "@/lib/utils";
 
 import { IconButton } from "@/components/icon-button";
 
-const ICON = "col-start-1 row-start-1 transition-[opacity,scale,filter] duration-200 ease-out";
+const ICON =
+  "col-start-1 row-start-1 transition-[opacity,scale,filter] duration-200 ease-out motion-reduce:transition-opacity";
 
 export function CopyButton({
   value,
