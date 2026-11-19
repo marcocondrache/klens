@@ -1,6 +1,8 @@
 import { useState, type ReactNode } from "react";
 import { useTable, type ColumnDef, type RowData } from "@tanstack/react-table";
 
+import { LoadError } from "@/components/load-error";
+
 import { features, type DataTableFeatures } from "./features";
 import { StaticTable } from "./static-table";
 import { VirtualTable } from "./virtual-table";
@@ -50,7 +52,7 @@ export function DataTable<TData extends RowData>({
     table,
     rows,
     loading,
-    placeholder: error ?? emptyState ?? "No results.",
+    placeholder: error != null ? <LoadError>{error}</LoadError> : (emptyState ?? "No results."),
     onRowClick,
   };
 

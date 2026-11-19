@@ -10,6 +10,7 @@ import { features, type DataTableFeatures } from "@/components/data-table/featur
 import { DataTableMessageRow, DataTableSkeletonRows } from "@/components/data-table/rows";
 import { VirtualTable } from "@/components/data-table/virtual-table";
 import { DataTableViewport } from "@/components/data-table/viewport";
+import { LoadError } from "@/components/load-error";
 import { Button } from "@/components/ui/button";
 
 import { RefreshBar } from "./refresh-bar";
@@ -92,7 +93,7 @@ export function RecordTable<TData extends RowData>({
         rows={rows}
         viewport={viewport}
         loading={loading || awaitingFirstPage}
-        placeholder={error ?? emptyState}
+        placeholder={error != null ? <LoadError>{error}</LoadError> : emptyState}
         onRowClick={onRowClick}
         selectedRowId={selectedKey}
         stale={stale}
