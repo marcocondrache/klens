@@ -4,7 +4,7 @@ node = "latest"
 rpk = "26.2.2"
 rust = "latest"
 taplo = "latest"
-viteplus = "latest"
+viteplus = "1.6.0"
 
 "cargo:cargo-audit" = "latest"
 "cargo:cargo-machete" = "latest"
