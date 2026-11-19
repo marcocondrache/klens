@@ -1,7 +1,7 @@
 import { createColumnHelper } from "@tanstack/react-table";
 
 import type { DataTableFeatures } from "@/components/data-table/features";
-import { Pill } from "@/components/status";
+import { Pill, ToneValue } from "@/components/status";
 import type { SubjectRow } from "@/lib/api/types";
 import { formatEnumLabel } from "@/lib/format";
 
@@ -43,9 +43,9 @@ export const subjectColumns = columnHelper.columns([
     size: 160,
     meta: { align: "right" },
     cell: ({ getValue }) => (
-      <span className={getValue() === "NONE" ? "text-warn" : "text-muted-foreground"}>
+      <ToneValue tone={getValue() === "NONE" ? "warn" : "idle"}>
         {formatEnumLabel(getValue())}
-      </span>
+      </ToneValue>
     ),
   }),
 ]);

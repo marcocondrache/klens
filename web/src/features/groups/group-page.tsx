@@ -10,7 +10,7 @@ import { DataTable } from "@/components/data-table/data-table";
 import { Facts } from "@/components/facts";
 import { PageHeader } from "@/components/page-header";
 import { TabCount } from "@/components/tab-count";
-import { GroupStateBadge, PendingValue, Pill, TONE_TEXT } from "@/components/status";
+import { GroupStateBadge, PendingValue, Pill, ToneValue } from "@/components/status";
 import { useAccess } from "@/hooks/use-access";
 import { useGroup } from "@/lib/api/catalog";
 import { clusterPathname, del, resourceId } from "@/lib/api/client";
@@ -48,10 +48,10 @@ function GroupFacts({
       {group.totalLag === null ? (
         <PendingValue label="Fetching committed offsets" />
       ) : (
-        <span className={TONE_TEXT[lagTone(group.totalLag)]}>
+        <ToneValue tone={lagTone(group.totalLag)}>
           {group.lagComplete ? "" : "≥ "}
           {formatCount(group.totalLag)} lag
-        </span>
+        </ToneValue>
       )}
     </Facts>
   );

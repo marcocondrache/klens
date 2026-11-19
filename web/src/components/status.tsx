@@ -1,4 +1,5 @@
 import type { ComponentProps, ReactNode } from "react";
+import { CircleAlertIcon, TriangleAlertIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 import type { GroupState } from "@/lib/api/types";
@@ -24,7 +25,7 @@ const TONE_PILL: Record<Tone, string> = {
   brand: "bg-brand/12 text-brand",
 };
 
-export const TONE_TEXT: Record<Tone, string> = {
+const TONE_TEXT: Record<Tone, string> = {
   ok: "text-foreground",
   warn: "text-warn",
   error: "text-destructive",
@@ -32,9 +33,21 @@ export const TONE_TEXT: Record<Tone, string> = {
   brand: "text-brand",
 };
 
-export function StatusDot({ tone, pulse = false }: { tone: Tone; pulse?: boolean }) {
+export function StatusDot({
+  tone,
+  pulse = false,
+  label,
+}: {
+  tone: Tone;
+  pulse?: boolean;
+  label?: string;
+}) {
   return (
-    <span className="relative inline-flex size-2 shrink-0 items-center justify-center">
+    <span
+      title={label}
+      className="relative inline-flex size-2 shrink-0 items-center justify-center"
+    >
+      {label ? <span className="sr-only">{label}</span> : null}
       {pulse ? (
         <span
           className={cn(
@@ -96,6 +109,28 @@ export function StatusLabel({
   );
 }
 
+/** Colors a value by tone, and marks warn and error with an icon so color is never the only cue. */
+export function ToneValue({
+  tone,
+  className,
+  children,
+  ...props
+}: ComponentProps<"span"> & { tone: Tone }) {
+  const Icon = tone === "error" ? CircleAlertIcon : tone === "warn" ? TriangleAlertIcon : null;
+
+  return (
+    <span className={cn("inline-flex items-center gap-1", TONE_TEXT[tone], className)} {...props}>
+      {Icon ? (
+        <>
+          <Icon aria-hidden className="size-3 shrink-0" />
+          <span className="sr-only">{tone === "error" ? "Critical:" : "Warning:"}</span>
+        </>
+      ) : null}
+      {children}
+    </span>
+  );
+}
+
 export function GroupStateBadge({ state }: { state: GroupState }) {
   return (
     <StatusLabel tone={GROUP_TONE[state]} pulse={GROUP_TONE[state] === "warn"}>
@@ -124,13 +159,14 @@ export function LagValue({ lag, complete = true }: { lag: number | null; complet
   }
 
   return (
-    <span
-      className={cn("numeric", lag === 0 ? "text-muted-foreground" : TONE_TEXT[lagTone(lag)])}
+    <ToneValue
+      tone={lag === 0 ? "idle" : lagTone(lag)}
+      className="numeric"
       title={complete ? undefined : "Some partitions have no watermark yet"}
     >
       {complete ? "" : "≥ "}
       {formatNumber(lag)}
-    </span>
+    </ToneValue>
   );
 }
 
@@ -170,8 +206,8 @@ export function UsedValue({ used, title }: { used: number | null; title?: string
   }
 
   return (
-    <span className={cn("numeric", TONE_TEXT[diskTone(used)])} title={title}>
+    <ToneValue tone={diskTone(used)} className="numeric" title={title}>
       {Math.round(used * 100)}%
-    </span>
+    </ToneValue>
   );
 }
