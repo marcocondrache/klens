@@ -122,7 +122,7 @@ export function offsetColumns({
             {memberLabels.get(row.original.memberId) ?? row.original.memberId}
           </span>
         ) : (
-          <span className="text-muted-foreground/70">unassigned</span>
+          <span className="text-muted-foreground">unassigned</span>
         ),
     }),
   ]);

@@ -206,7 +206,7 @@ export function RecordSheet({
               <section className="shrink-0 space-y-2">
                 <h3 className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
                   Headers
-                  <span className="numeric text-muted-foreground/60">
+                  <span className="numeric text-muted-foreground">
                     {selectedRecord.headers.length}
                   </span>
                 </h3>
