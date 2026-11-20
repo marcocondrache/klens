@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.107.0](https://github.com/marcocondrache/klens/compare/v0.106.0...v0.107.0) (2026-11-19)
+
+
+### Features
+
+* **web:** add a columns menu to hide record table columns ([#744](https://github.com/marcocondrache/klens/issues/744)) ([c239c90](https://github.com/marcocondrache/klens/commit/c239c90e36851fc116e6287e9d59e81c6d687794))
+* **web:** name the browser tab after the current view ([#758](https://github.com/marcocondrache/klens/issues/758)) ([8d25f2c](https://github.com/marcocondrache/klens/commit/8d25f2c2a5fc37e4c66d2f2e9eeb695f8c63a5e6))
+* **web:** offer a retry when a table fails to load ([#757](https://github.com/marcocondrache/klens/issues/757)) ([e65a099](https://github.com/marcocondrache/klens/commit/e65a099dbabb9d1f88edf3b1d241d091a51fe428))
+
+
+### Bug Fixes
+
+* **deps:** bump hono and @hono/node-server to clear bun audit ([#745](https://github.com/marcocondrache/klens/issues/745)) ([7b9bfe6](https://github.com/marcocondrache/klens/commit/7b9bfe6faf0c123cc6e5a22a4bcddd159c26e288))
+* **deps:** update dependency @tanstack/react-hotkeys to ^0.27.0 ([#736](https://github.com/marcocondrache/klens/issues/736)) ([2eab435](https://github.com/marcocondrache/klens/commit/2eab435ac4caee23366f4e5d7b7788788b43985b))
+* **deps:** update dependency fumadocs-core to v16.19.3 ([#740](https://github.com/marcocondrache/klens/issues/740)) ([71cdf6f](https://github.com/marcocondrache/klens/commit/71cdf6fdfa76b7c0e352aca3fe70976c726ba23b))
+* **deps:** update dependency fumadocs-ui to v16.19.3 ([#741](https://github.com/marcocondrache/klens/issues/741)) ([682aa98](https://github.com/marcocondrache/klens/commit/682aa98eb6397845319aabd895439b4f4a6b0b23))
+* **web:** darken light-theme accent and status colors to pass text contrast ([#751](https://github.com/marcocondrache/klens/issues/751)) ([eb1bbc4](https://github.com/marcocondrache/klens/commit/eb1bbc4e6e844b8aa8e13ac1e9d4fa9a455acc09))
+* **web:** draw focus rings in an opaque color that passes 3:1 ([#753](https://github.com/marcocondrache/klens/issues/753)) ([3dd9b92](https://github.com/marcocondrache/klens/commit/3dd9b9295d715d7602bc33c15a34c09b1df38b6e))
+* **web:** drop overlay travel and scale under reduced motion ([#754](https://github.com/marcocondrache/klens/issues/754)) ([91f8871](https://github.com/marcocondrache/klens/commit/91f8871edfa834c0be66d0a8be822b5c0a10c4c8))
+* **web:** pair status colors with an icon or label ([#755](https://github.com/marcocondrache/klens/issues/755)) ([7167673](https://github.com/marcocondrache/klens/commit/71676732945e3020c8992e70c6382123fc37a2ab))
+* **web:** render meaningful muted values at full muted contrast ([#752](https://github.com/marcocondrache/klens/issues/752)) ([64e90fa](https://github.com/marcocondrache/klens/commit/64e90facc057d7e17e2a38e562b3498043fb8c8f))
+* **web:** wrap page titles and record header keys instead of truncating ([#756](https://github.com/marcocondrache/klens/issues/756)) ([095a0c7](https://github.com/marcocondrache/klens/commit/095a0c7a29d5c361992057276383d02af7d3c718))
+
 ## [0.106.0](https://github.com/marcocondrache/klens/compare/v0.105.1...v0.106.0) (2026-11-12)
 
 
