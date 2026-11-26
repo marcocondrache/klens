@@ -1239,7 +1239,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2146,7 +2146,7 @@ dependencies = [
  "moka",
  "openidconnect",
  "ouroboros",
- "pbkdf2 0.13.0",
+ "pbkdf2",
  "percent-encoding",
  "prost-reflect",
  "protox",
@@ -2178,9 +2178,9 @@ dependencies = [
 
 [[package]]
 name = "krafka"
-version = "0.31.0"
+version = "0.32.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "29f79988130f1a10be36c693a6f75bccc14eb2ed70b139aa41b558f1418b553b"
+checksum = "339c656f3bddd0dcd21664a03eaae5d8eee4d7596ba27296c4d014a4d64156c9"
 dependencies = [
  "ahash",
  "arc-swap",
@@ -2190,15 +2190,15 @@ dependencies = [
  "flate2",
  "futures",
  "futures-core",
- "hmac 0.12.1",
+ "hmac 0.13.0",
  "lz4_flex",
  "parking_lot",
- "pbkdf2 0.12.2",
+ "pbkdf2",
  "rand 0.9.5",
  "regex-lite",
  "rustls",
  "ruzstd",
- "sha2 0.10.9",
+ "sha2 0.11.1",
  "snap",
  "socket2 0.5.10",
  "subtle",
@@ -2750,16 +2750,6 @@ checksum = "df94ce210e5bc13cb6651479fa48d14f601d9858cfe0467f43ae157023b938d3"
 
 [[package]]
 name = "pbkdf2"
-version = "0.12.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f8ed6a7761f76e3b9f92dfb0a60a6a6477c61024b775147ff0973a02653abaf2"
-dependencies = [
- "digest 0.10.7",
- "hmac 0.12.1",
-]
-
-[[package]]
-name = "pbkdf2"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "112d82ceb8c5bf524d9af484d4e4970c9fd5a0cc15ba14ad93dccd28873b0629"
@@ -3087,7 +3077,7 @@ dependencies = [
  "once_cell",
  "socket2 0.6.5",
  "tracing",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3463,7 +3453,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3522,7 +3512,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4203,10 +4193,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -5025,7 +5015,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
